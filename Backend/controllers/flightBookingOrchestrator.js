@@ -7,7 +7,8 @@ const { confirmFlight, bookFlight } = require('./flightBookingService');
 const { sendSmsNotification } = require('./notificationService'); // 1. ADD THIS LINE TO IMPORT THE SMS NOTIFICATION SERVICE
 const User = require('../models/User'); // 1. ADD THIS LINE TO IMPORT THE USER MODEL
 const { confirmHotelOffer, bookHotel } = require('./hotelBookingService'); // I added this import to use the hotel booking functionality
-
+const { findActivities } = require('./activitiesController'); // I added this import to use the activities search functionality
+const { saveUserPreference, getUserPreferences } = require('./knowledgeGraphService'); // I added this import to use the knowledge graph service
 // This controller will be responsible for coordinating other agents
 // to build the complete itinerary.
 const orchestrateFlightBooking = asyncHandler(async (req, res) => {
@@ -20,6 +21,10 @@ const orchestrateFlightBooking = asyncHandler(async (req, res) => {
     if (!travelers || !Array.isArray(travelers) || travelers.length === 0) {
         return res.status(400).json({ message: 'Traveler data (array of traveler objects) is required for booking.' });
     }
+
+    // --- New Step: Get User's Saved Preferences from Knowledge Graph ---
+    const userPreferences = await getUserPreferences(req.user.id);
+    console.log(`Found saved preferences for user:`, userPreferences);
 
     // 1. Call Travel Request Agent
     let travelRequest;
@@ -37,6 +42,19 @@ const orchestrateFlightBooking = asyncHandler(async (req, res) => {
     // Validate that the number of travelers matches the extracted adults count
     if (travelers.length !== (travelRequest.flight.adults || 1)) {
         return res.status(400).json({ message: `Number of travelers provided (${travelers.length}) does not match the number of adults in the request (${travelRequest.flight.adults || 1}).` });
+    }
+
+    // --- New Step: Save any new preferences to the Knowledge Graph ---
+    if (travelRequest.flight && travelRequest.flight.preferences) {
+        for (const pref of travelRequest.flight.preferences) {
+            // This loop saves each preference found in the text
+            await saveUserPreference(req.user.id, 'flight', pref);
+        }
+    }
+    if (travelRequest.hotel && travelRequest.hotel.preferences) {
+        for (const pref of travelRequest.hotel.preferences) {
+            await saveUserPreference(req.user.id, 'hotel', pref);
+        }
     }
 
     // 2. Call Flight Search Agent
@@ -204,6 +222,18 @@ const orchestrateFlightBooking = asyncHandler(async (req, res) => {
         bookingConfirmation.itinerary_suggestions = "Could not retrieve activity suggestions at this time.";
     }
     // --- END: New Tavily Itinerary Enrichment Logic ---
+    }
+
+    // New Step: Call Activities Agent
+    if (bookingConfirmation.hotelInfo && bookingConfirmation.hotelInfo[0]?.geoCode) {
+        const { latitude, longitude } = bookingConfirmation.hotelInfo[0].geoCode;
+        try {
+            const activities = await findActivities(latitude, longitude);
+            bookingConfirmation.activity_suggestions = activities;
+        } catch (activityError) {
+            console.error('Activity search failed:', activityError.message);
+            bookingConfirmation.activity_suggestions = "Could not retrieve activity suggestions.";
+        }
     }
 
     // 6. Return the final result
