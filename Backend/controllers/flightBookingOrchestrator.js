@@ -9,6 +9,8 @@ const User = require('../models/User');
 const { confirmHotelOffer, bookHotel } = require('./hotelBookingService');
 const { generateActivitySuggestions } = require('./activitySuggestionService'); // Import the new service
 const { amadeusActivityController, getActivitiesNearBookedHotel } = require('./amadeusActivityController');
+const Partner = require('../models/Partner'); // Import the Partner model
+const Booking = require('../models/Booking'); // Import the Booking model
 const { generateFlightBookingSms, generateHotelBookingSms } = require('../utils/smsTemplates');
 
 // This controller will be responsible for coordinating other agents
@@ -24,6 +26,19 @@ const orchestrateFlightBooking = asyncHandler(async (req, res) => {
         return res.status(400).json({ message: 'Traveler data (array of traveler objects) is required for booking.' });
     }
 
+    // =================================================================
+    // ===== START OF ADDED CODE #1: Get Preferences & Partners ========
+    // =================================================================
+    let userPreferences = [];
+    try {
+        userPreferences = await getUserPreferences(req.user.id);
+        console.log(`Found ${userPreferences.length} saved preferences for user.`);
+    } catch (e) {
+        console.error("Could not fetch user preferences from KG:", e.message);
+    }
+
+    const partners = await Partner.find();
+
     // 1. Call Travel Request Agent
     let travelRequest;
     try {
@@ -32,6 +47,24 @@ const orchestrateFlightBooking = asyncHandler(async (req, res) => {
     } catch (error) {
         
         return res.status(500).json({ message: 'Failed to process travel request.', details: error.message });
+    }
+
+    // =================================================================
+    // ===== START OF ADDED CODE #2: Save New Preferences =============
+    // =================================================================
+    try {
+        if (travelRequest.flight && travelRequest.flight.preferences) {
+            for (const pref of travelRequest.flight.preferences) {
+                await saveUserPreference(req.user.id, 'flight', pref);
+            }
+        }
+        if (travelRequest.hotel && travelRequest.hotel.preferences) {
+            for (const pref of travelRequest.hotel.preferences) {
+                await saveUserPreference(req.user.id, 'hotel', pref);
+            }
+        }
+    } catch (e) {
+        console.error("Could not save new preferences to KG:", e.message);
     }
 
     if (!travelRequest || !travelRequest.flight) {
@@ -73,6 +106,17 @@ const orchestrateFlightBooking = asyncHandler(async (req, res) => {
         if (flightSearchRes.statusCode !== 200 || !flightSearchRes.body.flights || flightSearchRes.body.flights.length === 0) {
             return res.status(500).json({ message: 'Failed to find flights or no flights available.', details: flightSearchRes.body });
         }
+
+        // =================================================================
+        // ===== START OF ADDED CODE #3: Partner Preference Sorting ======
+        // =================================================================
+        flightSearchRes.body.flights.sort((a, b) => {
+            const aIsPartner = partners.some(p => p.businessType === 'airline' && p.businessName === a.validatingAirlineCodes[0]);
+            const bIsPartner = partners.some(p => p.businessType === 'airline' && p.businessName === b.validatingAirlineCodes[0]);
+            if (aIsPartner && !bIsPartner) return -1;
+            if (!aIsPartner && bIsPartner) return 1;
+            return 0;
+        });
 
         for (const flightOffer of flightSearchRes.body.flights) {
             try {
