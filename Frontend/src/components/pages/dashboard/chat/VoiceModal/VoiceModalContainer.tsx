@@ -2,7 +2,7 @@
 import React, { useState } from "react";
 import VoiceModal from "./VoiceModal";
 import { useSpeechToText } from "../../../../../hooks/useSpeechToText";
-import { useTextToSpeech } from "../../../../../utils/stt";
+import { useTextToSpeech } from "../../../../../utils/tts";
 
 type VoiceModalContainerProps = {
   isOpen: boolean;

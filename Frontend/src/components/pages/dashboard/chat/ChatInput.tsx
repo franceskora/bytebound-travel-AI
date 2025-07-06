@@ -1,6 +1,8 @@
-// ChatInput.tsx
+
 import { useState, useRef } from "react";
-import { PlusCircle, Mic, Send } from "lucide-react";
+import { PlusCircle, Mic, Send, Check, X } from "lucide-react";
+import { recordAudio } from "../../../../utils/recordAudio";
+import { transcribeAudio } from "../../../../lib/api";
 
 interface ChatInputProps {
   onSend: (message: any) => void; // will be ChatMessageType
@@ -10,28 +12,41 @@ export const ChatInput = ({ onSend }: ChatInputProps) => {
   const [input, setInput] = useState("");
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
+  const [isListening, setIsListening] = useState(false);
+  const [transcript, setTranscript] = useState("");
+  const [isProcessing, setIsProcessing] = useState(false);
+
+  
+
+  const recognitionRef = useRef<SpeechRecognition | null>(null);
+ 
 
 
- const handleSendClick = () => {
-  if (!input.trim() && !selectedFile) return;
+const handleSendClick = () => {
+    if (!input.trim() && !selectedFile) return;
 
-  const message: any = {};
-  if (input.trim()) message.text = input.trim();
-  if (selectedFile) {
-    message.file = {
-      name: selectedFile.name,
-      url: URL.createObjectURL(selectedFile),
-      type: selectedFile.type
-    };
-  }
+    const message: any = {};
+    if (input.trim()) {
+      message.text = input.trim();
+      message.transcribed = transcript.length > 0;
+    }
+    if (selectedFile) {
+      message.file = {
+        name: selectedFile.name,
+        url: URL.createObjectURL(selectedFile),
+        type: selectedFile.type,
+      };
+    }
 
-  onSend(message);
-  setInput("");
-  setSelectedFile(null);
-};
+    onSend(message);
+    setInput("");
+    setSelectedFile(null);
+    setTranscript("");
+  };
 
 
-  const handleKeyDown = (e: React.KeyboardEvent) => {
+
+   const handleKeyDown = (e: React.KeyboardEvent) => {
     if (e.key === "Enter") handleSendClick();
   };
 
@@ -39,38 +54,52 @@ export const ChatInput = ({ onSend }: ChatInputProps) => {
     fileInputRef.current?.click();
   };
 
-const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-  const file = e.target.files?.[0];
-  if (file) {
-    setSelectedFile(file);
+  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (file) setSelectedFile(file);
+  };
+
+
+const handleMicClick = async () => {
+  try {
+    setIsListening(true); // ✅ Show the cancel/confirm icons
+
+    const audioBlob = await recordAudio();
+
+    // You can choose to auto-transcribe immediately OR wait for confirm
+    const { text } = await transcribeAudio(audioBlob);
+
+    setTranscript(text || ""); // ✅ Put result in transcript, not input yet
+
+    // Note: Don’t auto-setInput() if you want user to confirm first
+  } catch (err) {
+    console.error("Voice recording failed:", err);
+    alert("Error recording or transcribing audio.");
+    setIsListening(false);
   }
 };
 
+const stopListening = () => {
+  recognitionRef.current?.stop();
+  setIsListening(false);
+};
 
-  // Very basic voice recording with MediaRecorder
-  const handleMicClick = async () => {
-    if (!navigator.mediaDevices) {
-      alert("Audio recording not supported");
-      return;
-    }
 
-    const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-    const recorder = new MediaRecorder(stream);
-    const chunks: BlobPart[] = [];
+const handleConfirmDictation = async () => {
+    stopListening();
+    setIsProcessing(true);
 
-    recorder.ondataavailable = (e) => chunks.push(e.data);
-    recorder.onstop = () => {
-      const blob = new Blob(chunks, { type: "audio/webm" });
-      const audioUrl = URL.createObjectURL(blob);
-      onSend({ audioUrl });
-    };
+    // Simulate processing delay (could run grammar fix API here)
+    await new Promise((resolve) => setTimeout(resolve, 1000));
 
-    recorder.start();
+    setInput(transcript);
+    setIsProcessing(false);
+    setTranscript("");
+  };
 
-    setTimeout(() => {
-      recorder.stop();
-      stream.getTracks().forEach(track => track.stop());
-    }, 3000); // Record for 3 sec for demo
+  const handleCancelDictation = () => {
+    stopListening();
+    setTranscript("");
   };
 
   return (
@@ -98,20 +127,61 @@ const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
           <PlusCircle size={22} />
         </button>
 
+       
         <input
           type="text"
-          placeholder="Enter a prompt here..."
+          placeholder={
+            isListening
+              ? "Listening... Speak now!"
+              : isProcessing
+              ? "Processing voice input..."
+              : "Enter a prompt here..."
+          }
           value={input}
           onChange={(e) => setInput(e.target.value)}
           onKeyDown={handleKeyDown}
+          disabled={isProcessing}
           className="w-full bg-transparent outline-none px-2 text-sm"
         />
 
-        <button type="button" onClick={handleMicClick} className="p-2 text-primary hover:bg-secondary transition bg-light dark:bg-gray-800 dark:hover:bg-gray-700">
-          <Mic size={22} />
-        </button>
+        {!isListening && (
+          <button
+            type="button"
+            onClick={handleMicClick}
+            className="p-2 rounded-full transition text-primary hover:bg-secondary bg-light dark:bg-gray-800 dark:hover:bg-gray-700"
+          >
+            <Mic size={22} />
+          </button>
+        )}
 
-        <button type="button" onClick={handleSendClick} className="p-2 text-white bg-primary dark:bg-green rounded-full hover:bg-primary/90">
+        {isListening && (
+          <>
+            <button
+              type="button"
+              onClick={handleCancelDictation}
+              className="p-2 text-red-600"
+              title="Cancel"
+            >
+              <X size={22} />
+            </button>
+            <button
+              type="button"
+              onClick={handleConfirmDictation}
+              className="p-2 text-green-600"
+              title="Confirm"
+            >
+              <Check size={22} />
+            </button>
+          </>
+        )}
+
+
+       <button
+          type="button"
+          onClick={handleSendClick}
+          disabled={isProcessing}
+          className="p-2 text-white bg-primary dark:bg-green rounded-full hover:bg-primary/90"
+        >
           <Send size={18} />
         </button>
       </div>
