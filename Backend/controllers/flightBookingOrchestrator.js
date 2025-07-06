@@ -105,6 +105,17 @@ const orchestrateFlightBooking = asyncHandler(async (req, res) => {
                                 bookingConfirmation = await bookFlight(confirmedOffer.data.flightOffers[0], travelersForBooking);
                 flightBooked = true;
                 // console.log('Flight Booking Confirmation:', JSON.stringify(bookingConfirmation, null, 2)); // Temporarily commented out for focused logging
+                // --- New Logic: Save a record of this booking ---
+                const airlineCode = bookingConfirmation.data.validatingAirlineCodes[0];
+                const partner = await Partner.findOne({ businessName: airlineCode });
+
+                await Booking.create({
+                    user: req.user.id,
+                    bookingType: 'flight',
+                    providerName: airlineCode,
+                    partner: partner ? partner._id : null,
+                    amount: parseFloat(bookingConfirmation.data.price.grandTotal)
+                });
 
                 // Send SMS for flight booking to all travelers
                 for (const traveler of travelers) {
@@ -201,6 +212,18 @@ const orchestrateFlightBooking = asyncHandler(async (req, res) => {
                     };
 
                     const hotelBookingConfirmation = await bookHotel(hotelOrderData);
+
+                    // --- New Logic: Save a record of this hotel booking ---
+                    const hotelName = confirmedOffer.hotel.name; // Get the hotel name
+                    const partner = await Partner.findOne({ businessName: hotelName });
+
+                    await Booking.create({
+                        user: req.user.id,
+                        bookingType: 'hotel',
+                        providerName: hotelName,
+                        partner: partner ? partner._id : null,
+                        amount: parseFloat(confirmedOffer.offers[0].price.total)
+                    });
 
                     // Add the successful booking info to the final response
                     bookingConfirmation.hotelBookingDetails = hotelBookingConfirmation;
