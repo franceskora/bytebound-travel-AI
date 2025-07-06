@@ -9,8 +9,8 @@ const router = express.Router();
 
 // Multer storage config preserving extensions
 const storage = multer.diskStorage({
-  destination: (req, file, cb) => cb(null, "uploads/"),
-  filename: (req, file, cb) => {
+  destination: (_req, _file, cb) => cb(null, "uploads/"),
+  filename: (_req, file, cb) => {
     const ext = path.extname(file.originalname);
     cb(null, `${file.filename}-${Date.now()}${ext}`);
   },

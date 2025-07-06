@@ -20,27 +20,36 @@ async function extractTravelRequest(req) {
             role: 'user',
             content: `Your job is to act as a highly accurate travel request parser. Extract all relevant travel details from the user\'s request and format them into a JSON object with three main sections: "flight", "hotel", and "activities".
 
+            **General Intent Recognition:**
+            - If the user asks to "plan a trip" or similar general travel planning, assume they want both flight and hotel details extracted, unless explicitly stated otherwise (e.g., "plan a flight only").
+            - If the user explicitly asks for "plan a flight" or similar, only extract flight details.
+
             For the "flight" section, include:
             - "origin": (string, IATA code or city name, e.g., "LHR", "London")
             - "destination": (string, IATA code or city name, e.g., "JFK", "New York")
             - "departureDate": (string, YYYY-MM-DD format, e.g., "2025-07-15")
-            - "returnDate": (string, YYYY-MM-DD format, optional, e.g., "2025-07-20")
+            - "returnDate": (string, YYYY-MM-DD format, optional.
+            - By default, assume a round-trip. If a trip duration is specified (e.g., '7 days') along with a 'departureDate', calculate the 'returnDate' by adding the duration to the 'departureDate'.
+            - If the user explicitly mentions "one-way", "single journey", or similar, set 'returnDate' to null.
+            - If the user mentions a hotel stay duration (e.g., "4 days stay at hotel") without explicitly mentioning a return flight, infer a one-way flight and set 'returnDate' to null.
+            - If neither is explicitly provided nor inferable from duration, set to null.
+            e.g., "2025-07-20")
             - "adults": (number, optional, default to 1 if not specified)
             - "children": (number, optional, default to 0 if not specified)
             - "travelClass": (string, optional, e.g., "ECONOMY", "BUSINESS", "FIRST", default to "ECONOMY")
             - "preferences": (array of strings, optional, e.g., ["direct flights", "specific airline"])
 
             For the "hotel" section, include:
-            - "location": (string, city name or specific address)
-            - "checkInDate": (string, YYYY-MM-DD format)
-            - "checkOutDate": (string, YYYY-MM-DD format)
-            - "guests": (number, total number of guests)
+            - "location": (string, city name or specific address. If not explicitly provided but a flight destination is, infer hotel location from flight destination.)
+            - "checkInDate": (string, YYYY-MM-DD format. If not explicitly provided but a flight departure date is, infer hotel check-in date from flight departure date.)
+            - "checkOutDate": (string, YYYY-MM-DD format. If not explicitly provided but a flight return date is, infer hotel check-out date from flight return date. If only flight departure date and trip duration are given, infer from those.)
+            - "guests": (number, total number of guests. If not explicitly provided, infer from flight adults count.)
             - "rooms": (number, optional, default to 1 if not specified)
             - "preferences": (array of strings, optional, e.g., ["5-star", "boutique", "near beach"])
 
             For the "activities" section, include:
             - "location": (string, city name or specific address, if different from hotel)
-            - "interests": (array of strings, e.g., ["museums", "hiking", "food tours", "nightlife"])
+            - "userPreferences": (array of strings, e.g., ["museums", "hiking", "food tours", "nightlife"])
             - "dates": (array of strings, YYYY-MM-DD format, optional, specific dates for activities)
 
             If information for a section or a field is not explicitly provided or cannot be reasonably inferred, set its value to null or an appropriate default as specified. Do not make up information.
@@ -78,6 +87,8 @@ async function extractTravelRequest(req) {
     } catch (parseError) {
       throw new Error(`Failed to parse travel request JSON from LLM response: ${parseError.message}. Raw: ${rawText}`);
     }
+
+    
 
     return travelRequest;
   } catch (error) {

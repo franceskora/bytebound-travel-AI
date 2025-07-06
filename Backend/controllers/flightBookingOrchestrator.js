@@ -1,18 +1,20 @@
+require('dotenv').config({ path: require('path').resolve(__dirname, '../.env') });
 const asyncHandler = require('express-async-handler');
 const { extractTravelRequest } = require('./travelRequestController');
 const flightSearchController = require('./flightSearchController');
-const { searchHotels } = require('./hotelSearchController'); //I added this import to use the hotel search functionality
-const { getRichLocationDetails } = require('./travelEnrichmentService'); // I added this import to use the travel enrichment service
+const { searchHotels } = require('./hotelSearchController');
 const { confirmFlight, bookFlight } = require('./flightBookingService');
-const { sendSmsNotification } = require('./notificationService'); // 1. ADD THIS LINE TO IMPORT THE SMS NOTIFICATION SERVICE
-const User = require('../models/User'); // 1. ADD THIS LINE TO IMPORT THE USER MODEL
-const { confirmHotelOffer, bookHotel } = require('./hotelBookingService'); // I added this import to use the hotel booking functionality
-const { findActivities } = require('./activitiesController'); // I added this import to use the activities search functionality
-const { saveUserPreference, getUserPreferences } = require('./knowledgeGraphService'); // I added this import to use the knowledge graph service
+const { sendSmsNotification } = require('./notificationService');
+const User = require('../models/User');
+const { confirmHotelOffer, bookHotel } = require('./hotelBookingService');
+const { generateActivitySuggestions } = require('./activitySuggestionService'); // Import the new service
+const { amadeusActivityController, getActivitiesNearBookedHotel } = require('./amadeusActivityController');
+const { generateFlightBookingSms, generateHotelBookingSms } = require('../utils/smsTemplates');
+
 // This controller will be responsible for coordinating other agents
 // to build the complete itinerary.
 const orchestrateFlightBooking = asyncHandler(async (req, res) => {
-    const { text, travelers } = req.body; // Expect 'travelers' array from frontend
+    const { text, travelers, paymentDetails } = req.body; // Expect 'travelers' array and paymentDetails from frontend
 
     if (!text) {
         return res.status(400).json({ message: 'User input text is required to generate an itinerary.' });
@@ -22,16 +24,13 @@ const orchestrateFlightBooking = asyncHandler(async (req, res) => {
         return res.status(400).json({ message: 'Traveler data (array of traveler objects) is required for booking.' });
     }
 
-    // --- New Step: Get User's Saved Preferences from Knowledge Graph ---
-    const userPreferences = await getUserPreferences(req.user.id);
-    console.log(`Found saved preferences for user:`, userPreferences);
-
     // 1. Call Travel Request Agent
     let travelRequest;
     try {
         travelRequest = await extractTravelRequest({ body: { text: text } });
+        console.log('Extracted Travel Request:', JSON.stringify(travelRequest, null, 2));
     } catch (error) {
-        console.error('Error in Travel Request Agent:', error.message);
+        
         return res.status(500).json({ message: 'Failed to process travel request.', details: error.message });
     }
 
@@ -44,17 +43,9 @@ const orchestrateFlightBooking = asyncHandler(async (req, res) => {
         return res.status(400).json({ message: `Number of travelers provided (${travelers.length}) does not match the number of adults in the request (${travelRequest.flight.adults || 1}).` });
     }
 
-    // --- New Step: Save any new preferences to the Knowledge Graph ---
-    if (travelRequest.flight && travelRequest.flight.preferences) {
-        for (const pref of travelRequest.flight.preferences) {
-            // This loop saves each preference found in the text
-            await saveUserPreference(req.user.id, 'flight', pref);
-        }
-    }
-    if (travelRequest.hotel && travelRequest.hotel.preferences) {
-        for (const pref of travelRequest.hotel.preferences) {
-            await saveUserPreference(req.user.id, 'hotel', pref);
-        }
+    // Check for payment details if hotel booking is requested
+    if (travelRequest.hotel && travelRequest.hotel.location && !paymentDetails) {
+        return res.status(400).json({ message: 'Payment details are required for hotel booking.' });
     }
 
     // 2. Call Flight Search Agent
@@ -66,175 +57,217 @@ const orchestrateFlightBooking = asyncHandler(async (req, res) => {
         adults: travelRequest.flight.adults || 1 // Default to 1 adult if not specified
     };
 
-    // Mocking req and res for internal controller call
-    const flightSearchRes = {};
-    flightSearchRes.status = (statusCode) => { flightSearchRes.statusCode = statusCode; return flightSearchRes; };
-    flightSearchRes.json = (data) => { flightSearchRes.body = data; };
+    let bookingConfirmation = null;
+    let flightBooked = false;
+    let attempts = 0;
+    const maxAttempts = 2;
 
-    await flightSearchController.searchFlights({ body: flightSearchParams }, flightSearchRes);
+    while (!flightBooked && attempts < maxAttempts) {
+        attempts++;
+        const flightSearchRes = {};
+        flightSearchRes.status = (statusCode) => { flightSearchRes.statusCode = statusCode; return flightSearchRes; };
+        flightSearchRes.json = (data) => { flightSearchRes.body = data; };
 
-    if (flightSearchRes.statusCode !== 200 || !flightSearchRes.body.flights || flightSearchRes.body.flights.length === 0) {
-        return res.status(500).json({ message: 'Failed to find flights or no flights available.', details: flightSearchRes.body });
+        await flightSearchController.searchFlights({ body: flightSearchParams }, flightSearchRes);
+
+        if (flightSearchRes.statusCode !== 200 || !flightSearchRes.body.flights || flightSearchRes.body.flights.length === 0) {
+            return res.status(500).json({ message: 'Failed to find flights or no flights available.', details: flightSearchRes.body });
+        }
+
+        for (const flightOffer of flightSearchRes.body.flights) {
+            try {
+                const confirmedOffer = await confirmFlight(flightOffer);
+
+                if (!confirmedOffer || !confirmedOffer.data || !confirmedOffer.data.flightOffers || confirmedOffer.data.flightOffers.length === 0) {
+                    console.warn(`Orchestrator: No confirmable flight offers returned for flightOffer: ${flightOffer.id}. Trying next available flight.`);
+                    continue; // Try next flight offer
+                }
+
+                const travelerIds = confirmedOffer.data.flightOffers[0].travelerPricings.map(tp => tp.travelerId);
+                const travelersForBooking = travelers.map((frontendTraveler, index) => {
+                    const amadeusTravelerId = travelerIds[index];
+                    if (!amadeusTravelerId) {
+                        throw new Error(`Missing Amadeus traveler ID for traveler at index ${index}.`);
+                    }
+                    return {
+                        id: amadeusTravelerId,
+                        dateOfBirth: frontendTraveler.dateOfBirth,
+                        name: {
+                            firstName: frontendTraveler.name.firstName,
+                            lastName: frontendTraveler.name.lastName
+                        },
+                        gender: frontendTraveler.gender,
+                        contact: frontendTraveler.contact,
+                        documents: frontendTraveler.documents
+                    };
+                });
+
+                                bookingConfirmation = await bookFlight(confirmedOffer.data.flightOffers[0], travelersForBooking);
+                flightBooked = true;
+                // console.log('Flight Booking Confirmation:', JSON.stringify(bookingConfirmation, null, 2)); // Temporarily commented out for focused logging
+
+                // Send SMS for flight booking to all travelers
+                for (const traveler of travelers) {
+                    const phoneNumber = traveler?.contact?.phones[0]?.number;
+                    if (phoneNumber) {
+                        const flightSmsMessage = generateFlightBookingSms(bookingConfirmation, traveler);
+                        await sendSmsNotification(phoneNumber, flightSmsMessage);
+                    }
+                }
+                break; // Exit loop on successful booking
+            } catch (error) {
+                if (error.response && error.response.body) {
+                    const errorBody = JSON.parse(error.response.body);
+                    if (errorBody.errors && errorBody.errors[0].code === 34651) {
+                        console.warn(`Segment sell failure for flight offer. Trying next available flight.`);
+                        continue; // Try next flight offer
+                    } else {
+                        // For other errors, fail fast
+                        console.error('Error during flight booking attempt:', errorBody);
+                    }
+                } else {
+                    // For other errors, fail fast
+                    console.error('Error during flight booking attempt:', error.message);
+                }
+            }
+        }
+        if (flightBooked) break;
     }
 
-    const selectedFlightOffer = flightSearchRes.body.flights[0]; // Select the first flight offer
-
-    // Extract only the necessary fields for the Amadeus Flight Offers Price API
-    const simplifiedFlightOffer = {
-        type: selectedFlightOffer.type,
-        id: selectedFlightOffer.id,
-        source: selectedFlightOffer.source,
-        instantTicketingRequired: selectedFlightOffer.instantTicketingRequired,
-        nonHomogeneous: selectedFlightOffer.nonHomogeneous,
-        oneWay: selectedFlightOffer.oneWay,
-        lastTicketingDate: selectedFlightOffer.lastTicketingDate,
-        numberOfBookableSeats: selectedFlightOffer.numberOfBookableSeats,
-        itineraries: selectedFlightOffer.itineraries,
-        price: selectedFlightOffer.price,
-        pricingOptions: selectedFlightOffer.pricingOptions,
-        validatingAirlineCodes: selectedFlightOffer.validatingAirlineCodes,
-        travelerPricings: selectedFlightOffer.travelerPricings
-    };
-
-    // 3. Call Flight Booking Agent (Confirm)
-    let confirmedFlightOffer;
-    try {
-        const confirmResult = await confirmFlight(simplifiedFlightOffer);
-        if (!confirmResult || !confirmResult.data || !confirmResult.data.flightOffers || confirmResult.data.flightOffers.length === 0) {
-            throw new Error('No confirmed flight offers returned.');
-        }
-        confirmedFlightOffer = confirmResult.data.flightOffers[0];
-    } catch (error) {
-        console.error('Error confirming flight:', error.message);
-        return res.status(500).json({ message: 'Failed to confirm flight price.', details: error.message });
-    }
-
-    // 4. Call Flight Booking Agent (Book)
-    let bookingConfirmation;
-    try {
-        // Extract traveler IDs from the confirmed flight offer
-        const travelerIds = confirmedFlightOffer.travelerPricings.map(tp => tp.travelerId);
-
-        // Map frontend traveler data to Amadeus traveler IDs
-        const travelersForBooking = travelers.map((frontendTraveler, index) => {
-            const amadeusTravelerId = travelerIds[index]; // Assuming order matches
-            if (!amadeusTravelerId) {
-                throw new Error(`Missing Amadeus traveler ID for traveler at index ${index}.`);
-            }
-            return {
-                id: amadeusTravelerId,
-                dateOfBirth: frontendTraveler.dateOfBirth,
-                name: {
-                    firstName: frontendTraveler.name.firstName,
-                    lastName: frontendTraveler.name.lastName
-                },
-                gender: frontendTraveler.gender,
-                contact: frontendTraveler.contact,
-                documents: frontendTraveler.documents
-            };
-        });
-
-        bookingConfirmation = await bookFlight(confirmedFlightOffer, travelersForBooking);
-
-        // =================================================================
-        // ===== START: NEW SMART SMS NOTIFICATION LOGIC =====================
-        // =================================================================
-        
-        const user = await User.findById(req.user.id);
-
-        if (user && user.phoneNumber) {
-            // If the user has a phone number, send the SMS
-            const message = `Your flight booking is confirmed! Your record locator is ${bookingConfirmation.data.associatedRecords[0].reference}.`;
-            await sendSmsNotification(user.phoneNumber, message);
-        } else {
-            // If not, add a helpful note to the confirmation response
-            bookingConfirmation.additional_info = "To get SMS alerts for your bookings, add your phone number in your profile settings!";
-        }
-        
-        // =================================================================
-        // ===== END: NEW SMART SMS NOTIFICATION LOGIC =======================
-        // =================================================================
-
-    } catch (error) {
-        console.error('Error booking flight:', error.message);
-        let errorMessage = 'Failed to book flight.';
-
-        if (error.response && error.response.body && error.response.body.errors && error.response.body.errors.length > 0) {
-            const amadeusError = error.response.body.errors[0];
-            if (amadeusError.code === 34651 && amadeusError.title === "SEGMENT SELL FAILURE") {
-                errorMessage = 'The selected flight or a segment of it is no longer available for booking. This might be due to a change in price or seat availability. Please try searching for flights again.';
-            } else {
-                errorMessage = `Amadeus API Error (Book Flight): ${error.response.statusCode} - ${JSON.stringify(JSON.parse(error.response.body))}`;
-            }
-        } else if (error.message) {
-            errorMessage = error.message;
-        }
-        return res.status(500).json({ message: errorMessage, details: error.message });
+    if (!flightBooked) {
+        return res.status(500).json({ message: 'Failed to book any flight after trying all available options.' });
     }
     
     // I added this Call Hotel Search Agent (if hotel details are in the request) and book hotel logic
     if (travelRequest.hotel && travelRequest.hotel.location) {
-    try {
-        // Step 1: Search for hotels (existing logic)
-        const hotelOffers = await searchHotels(travelRequest.hotel.location);
+        let hotelBooked = false;
+        let hotelAttempts = 0;
+        const maxHotelAttempts = 3; // Max attempts for hotel booking
 
-        if (!hotelOffers || hotelOffers.length === 0) {
-            throw new Error("No hotel offers found.");
-        }
+        try {
+            // Step 1: Search for hotels (existing logic)
+            const hotelOffers = await searchHotels(flightSearchParams.destination, travelRequest.flight.adults, travelRequest.hotel.checkInDate, travelRequest.hotel.checkOutDate);
 
-        // Step 2: Select the best offer and confirm it
-        const selectedHotelOfferId = hotelOffers[0].offers[0].id; // Select the first offer of the first hotel
-        const confirmedOffer = await confirmHotelOffer(selectedHotelOfferId);
-
-        // Step 3: Prepare guest info from the travelers array
-        const guestsForBooking = travelers.map(traveler => ({
-            name: {
-                firstName: traveler.name.firstName,
-                lastName: traveler.name.lastName
-            },
-            contact: {
-                phone: traveler.contact.phones[0].number,
-                email: traveler.contact.emailAddress
+            if (!hotelOffers || hotelOffers.length === 0) {
+                throw new Error("No hotel offers found.");
             }
-        }));
 
-        // Step 4: Book the hotel
-        const hotelBookingConfirmation = await bookHotel(confirmedOffer.data.offerId, guestsForBooking);
+            while (!hotelBooked && hotelAttempts < maxHotelAttempts && hotelAttempts < hotelOffers.length) {
+                hotelAttempts++;
+                try {
+                    // Step 2: Select an offer and confirm it
+                    const selectedHotelOffer = hotelOffers[hotelAttempts - 1]; // Try next available offer
+                    const confirmedOffer = await confirmHotelOffer(selectedHotelOffer.offers[0].id);
 
-        // Add the successful booking info to the final response
-        bookingConfirmation.hotelBookingDetails = hotelBookingConfirmation;
+                    // Step 3: Prepare guest info from the travelers array
+                    const guestsForBooking = travelers.map(traveler => ({
+                        name: {
+                            firstName: traveler.name.firstName,
+                            lastName: traveler.name.lastName
+                        },
+                        contact: {
+                            phone: traveler.contact.phones[0].number,
+                            email: traveler.contact.emailAddress
+                        }
+                    }));
+
+                    const hotelOrderData = {
+                        type: "hotel-order",
+                        guests: guestsForBooking.map((guest, index) => {
+                            const originalTraveler = travelers[index];
+                            return {
+                                tid: index + 1,
+                                title: originalTraveler.title,
+                                firstName: guest.name.firstName,
+                                lastName: guest.name.lastName,
+                                phone: guest.contact.phone,
+                                email: guest.contact.email
+                            };
+                        }),
+                        travelAgent: {
+                            contact: {
+                                email: "bob.smith@email.com"
+                            }
+                        },
+                        roomAssociations: [
+                            {
+                                guestReferences: guestsForBooking.map((_, index) => ({
+                                    guestReference: (index + 1).toString()
+                                })),
+                                hotelOfferId: confirmedOffer.offers[0].id
+                            }
+                        ],
+                        payment: paymentDetails
+                    };
+
+                    const hotelBookingConfirmation = await bookHotel(hotelOrderData);
+
+                    // Add the successful booking info to the final response
+                    bookingConfirmation.hotelBookingDetails = hotelBookingConfirmation;
+                    console.log('Hotel Booking Confirmation:', JSON.stringify(hotelBookingConfirmation, null, 2));
+
+                    // Send SMS for hotel booking to all travelers
+                    for (const traveler of travelers) {
+                        const phoneNumber = traveler?.contact?.phones[0]?.number;
+                        if (phoneNumber) {
+                            const hotelSmsMessage = generateHotelBookingSms(hotelBookingConfirmation, traveler);
+                            await sendSmsNotification(phoneNumber, hotelSmsMessage);
+                        }
+                    }
+
+                    // Automatically fetch nearby activities for the booked hotel
+                    if (hotelBookingConfirmation && hotelBookingConfirmation.hotelBookings && hotelBookingConfirmation.hotelBookings.length > 0 && hotelBookingConfirmation.hotelBookings[0].hotel && hotelBookingConfirmation.hotelBookings[0].hotel.hotelId) {
+                        try {
+                            const hotelIdForActivities = hotelBookingConfirmation.hotelBookings[0].hotel.hotelId;
+                            const nearbyActivities = await getActivitiesNearBookedHotel(hotelIdForActivities);
+                            bookingConfirmation.nearby_activities = nearbyActivities;
+                            console.log('Nearby Activities:', JSON.stringify(nearbyActivities, null, 2));
+                        } catch (activityError) {
+                            console.error('Error fetching nearby activities automatically:', activityError.message);
+                            bookingConfirmation.nearby_activities = ["Could not retrieve nearby activities automatically."];
+                        }
+                    }
+                    hotelBooked = true;
+                } catch (hotelBookingError) {
+                    console.error(`Hotel booking attempt ${hotelAttempts} failed:`, hotelBookingError.message);
+                    if (hotelBookingError.message.includes("INVALID PREPAY") || hotelBookingError.message.includes("Amadeus Hotel Booking Error")) {
+                        console.warn("Retrying hotel booking with next available offer...");
+                        // Continue to next iteration to try another offer
+                    } else {
+                        // For other unexpected errors, re-throw or handle as non-recoverable
+                        throw hotelBookingError;
+                    }
+                }
+            }
+
+            if (!hotelBooked) {
+                bookingConfirmation.hotelInfo = "Failed to book any hotel after multiple attempts or no suitable offers found.";
+            }
 
         } catch (hotelError) {
-            console.error('Hotel booking process failed:', hotelError.message);
-            bookingConfirmation.hotelInfo = "Could not complete the hotel booking.";
+            console.error('Hotel booking process failed:', hotelError);
+            bookingConfirmation.hotelInfo = `Could not complete the hotel booking: ${hotelError.message}`;
         }
-  
-    // --- START: New Tavily Itinerary Enrichment Logic ---
-    try {
-        const query = `What are the top 3 recommended things to do in ${travelRequest.hotel.location}?`;
-        const enrichmentDetails = await getRichLocationDetails(query);
-    
-        // Add the answer from Tavily to our final response
-        bookingConfirmation.itinerary_suggestions = enrichmentDetails.answer;
-    
-    } catch (enrichmentError) {
-        console.error('Itinerary enrichment failed:', enrichmentError.message);
-        bookingConfirmation.itinerary_suggestions = "Could not retrieve activity suggestions at this time.";
-    }
-    // --- END: New Tavily Itinerary Enrichment Logic ---
     }
 
-    // New Step: Call Activities Agent
-    if (bookingConfirmation.hotelInfo && bookingConfirmation.hotelInfo[0]?.geoCode) {
-        const { latitude, longitude } = bookingConfirmation.hotelInfo[0].geoCode;
-        try {
-            const activities = await findActivities(latitude, longitude);
-            bookingConfirmation.activity_suggestions = activities;
-        } catch (activityError) {
-            console.error('Activity search failed:', activityError.message);
-            bookingConfirmation.activity_suggestions = "Could not retrieve activity suggestions.";
-        }
+    // --- START: Tavily Itinerary Enrichment Logic ---
+    try {
+        let destinationForActivities = travelRequest.activities?.location || flightSearchParams.destination;
+        let userActivityPreferences = travelRequest.activities?.userPreferences || [];
+
+        const activityRecommendations = await generateActivitySuggestions(
+            destinationForActivities,
+            userActivityPreferences
+        );
+        bookingConfirmation.itinerary_suggestions = activityRecommendations.itinerarySuggestions;
+        bookingConfirmation.tavilyRawResults = activityRecommendations.rawResults;
+        bookingConfirmation.tavilySummary = activityRecommendations.summary;
+
+    } catch (enrichmentError) {
+        console.error('Error generating activity suggestions:', enrichmentError);
+        bookingConfirmation.itinerary_suggestions = ["Could not retrieve activity suggestions at this time."];
     }
+    // --- END: Tavily Itinerary Enrichment Logic ---
 
     // 6. Return the final result
     res.status(200).json({

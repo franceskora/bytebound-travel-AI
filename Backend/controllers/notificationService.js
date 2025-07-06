@@ -9,6 +9,11 @@ const twilioNumber = process.env.TWILIO_PHONE_NUMBER;
 const client = twilio(accountSid, authToken);
 
 const sendSmsNotification = async (toPhoneNumber, messageBody) => {
+  if (process.env.DISABLE_SMS_NOTIFICATIONS === 'true') {
+    console.log(`SMS notification disabled. Would have sent to ${toPhoneNumber}: "${messageBody}"`);
+    return { status: 'disabled', sid: 'N/A' };
+  }
+
   try {
     const message = await client.messages.create({
       body: messageBody,
