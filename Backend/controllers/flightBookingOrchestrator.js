@@ -9,6 +9,7 @@ const User = require('../models/User'); // 1. ADD THIS LINE TO IMPORT THE USER M
 const { confirmHotelOffer, bookHotel } = require('./hotelBookingService'); // I added this import to use the hotel booking functionality
 const { findActivities } = require('./activitiesController'); // I added this import to use the activities search functionality
 const { saveUserPreference, getUserPreferences } = require('./knowledgeGraphService'); // I added this import to use the knowledge graph service
+const { generateCalendarLinks } = require('./calendarService'); // I added this import to use the calendar service
 // This controller will be responsible for coordinating other agents
 // to build the complete itinerary.
 const orchestrateFlightBooking = asyncHandler(async (req, res) => {
@@ -135,6 +136,24 @@ const orchestrateFlightBooking = asyncHandler(async (req, res) => {
         });
 
         bookingConfirmation = await bookFlight(confirmedFlightOffer, travelersForBooking);
+
+        // If the booking was successful, generate calendar links for each traveler
+
+        // --- START: New "Add to Calendar" Link Generation ---
+        const flightSegment = bookingConfirmation.data.flightOffers[0].itineraries[0].segments[0];
+
+        const flightEventDetails = {
+            title: `Flight to ${flightSegment.arrival.iataCode}`,
+            description: `Flight details for your trip. Confirmation: ${bookingConfirmation.data.associatedRecords[0].reference}`,
+            location: `Departs from ${flightSegment.departure.iataCode}`,
+            startTime: flightSegment.departure.at,
+            endTime: flightSegment.arrival.at,
+        };
+
+        const calendarLinks = generateCalendarLinks(flightEventDetails);
+        bookingConfirmation.calendarLinks = calendarLinks; 
+    // --- END: New "Add to Calendar" Link Generation ---
+
 
         // =================================================================
         // ===== START: NEW SMART SMS NOTIFICATION LOGIC =====================
