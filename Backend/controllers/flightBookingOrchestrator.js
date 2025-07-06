@@ -7,12 +7,12 @@ const { confirmFlight, bookFlight } = require('./flightBookingService');
 const { sendSmsNotification } = require('./notificationService');
 const User = require('../models/User');
 const { confirmHotelOffer, bookHotel } = require('./hotelBookingService');
-const { generateActivitySuggestions } = require('./activitySuggestionService'); // Import the new service
+const { generateActivitySuggestions, suggestUpsellProducts } = require('./activitySuggestionService'); // Import the new service
 const { amadeusActivityController, getActivitiesNearBookedHotel } = require('./amadeusActivityController');
 const Partner = require('../models/Partner'); // Import the Partner model
 const Booking = require('../models/Booking'); // Import the Booking model
 const { generateFlightBookingSms, generateHotelBookingSms } = require('../utils/smsTemplates');
-
+const { getAvailableProducts } = require('./productsController');
 // This controller will be responsible for coordinating other agents
 // to build the complete itinerary.
 const orchestrateFlightBooking = asyncHandler(async (req, res) => {
@@ -335,6 +335,21 @@ const orchestrateFlightBooking = asyncHandler(async (req, res) => {
         bookingConfirmation.itinerary_suggestions = ["Could not retrieve activity suggestions at this time."];
     }
     // --- END: Tavily Itinerary Enrichment Logic ---
+
+    // --- START: New Upsell Marketplace Logic ---
+    try {
+        const availableProducts = require('./productsController').getAvailableProducts();
+        const destination = travelRequest.flight.destination;
+        const productSuggestions = await suggestUpsellProducts(destination, availableProducts);
+        
+        // Add the suggestions to the final response
+        bookingConfirmation.product_suggestions = productSuggestions;
+
+    } catch (upsellError) {
+        console.error('Upsell suggestion failed:', upsellError.message);
+        bookingConfirmation.product_suggestions = [];
+    }
+    // --- END: New Upsell Marketplace Logic ---
 
     // 6. Return the final result
     res.status(200).json({

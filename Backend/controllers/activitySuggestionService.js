@@ -73,4 +73,46 @@ async function generateActivitySuggestions(location, userPreferences) {
   }
 }
 
-module.exports = { generateActivitySuggestions };
+// =================================================================
+// ===== START: NEW UPSELL MARKETPLACE FUNCTION ====================
+// =================================================================
+const suggestUpsellProducts = async (destination, availableProducts) => {
+  try {
+    const prompt = `You are a helpful travel concierge. A user is traveling to ${destination}. From the following list of products, suggest one or two that would be most relevant for their trip. Return your answer as a simple array of product names.
+
+    Available products: ${JSON.stringify(availableProducts)}
+    
+    User's Destination: ${destination}
+    
+    Your response should be only the array of product names, for example: ["Universal Travel Adapter", "Portable Neck Pillow"]`;
+
+    const response = await axios.post(
+      GROQ_API_URL,
+      {
+        model: 'llama3-8b-8192',
+        messages: [{ role: 'user', content: prompt }],
+        temperature: 0.5,
+      },
+      {
+        headers: {
+          'Authorization': `Bearer ${GROQ_API_KEY}`,
+          'Content-Type': 'application/json'
+        }
+      }
+    );
+
+    const suggestedProductNames = JSON.parse(response.data.choices[0].message.content);
+    
+    // Filter the full product details based on the AI's suggestions
+    return availableProducts.filter(p => suggestedProductNames.includes(p.name));
+
+  } catch (error) {
+    console.error("Upsell suggestion error:", error.message);
+    return []; // Return an empty array on failure
+  }
+};
+// =================================================================
+// ===== END: NEW UPSELL MARKETPLACE FUNCTION ======================
+// =================================================================
+
+module.exports = { generateActivitySuggestions, suggestUpsellProducts };
