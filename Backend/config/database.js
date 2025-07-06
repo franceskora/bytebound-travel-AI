@@ -1,6 +1,11 @@
 const mongoose = require("mongoose");
 
 const connectDB = async () => {
+  if (!process.env.MONGODB_URI) {
+    console.warn("⚠️  No MONGODB_URI found in env. Skipping MongoDB connection.");
+    return;
+  }
+
   try {
     const conn = await mongoose.connect(process.env.MONGODB_URI);
 
@@ -23,7 +28,8 @@ const connectDB = async () => {
     });
   } catch (error) {
     console.error("❌ Database connection failed:", error.message);
-    process.exit(1);
+    console.warn("⚠️  Continuing server startup without DB.");
+    // Don’t exit — just skip DB
   }
 };
 
