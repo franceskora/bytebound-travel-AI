@@ -1,15 +1,11 @@
-const Amadeus = require("amadeus");
-
-const amadeus = new Amadeus({
-  clientId: process.env.AMADEUS_CLIENT_ID,
-  clientSecret: process.env.AMADEUS_CLIENT_SECRET,
-});
+const amadeus = require('../config/amadeusClient')();
 
 const confirmFlight = async (flight) => {
   try {
     if (!flight) {
       throw new Error("Flight data is required");
     }
+    console.log('Confirming flight with data:', JSON.stringify(flight, null, 2)); // Added logging
 
     const response = await amadeus.shopping.flightOffers.pricing.post(
       JSON.stringify({
@@ -20,13 +16,14 @@ const confirmFlight = async (flight) => {
       })
     );
 
+    console.log('Flight confirmation successful. Response:', JSON.stringify(response.result, null, 2)); // Added logging
     return response.result;
   } catch (error) {
     if (error.response) {
-      console.error(error.response.body);
+      console.error('Error during flight confirmation:', error.response.body); // Modified logging
       throw new Error(`Amadeus API Error (Confirm Flight): ${error.response.statusCode} - ${JSON.stringify(JSON.parse(error.response.body))}`);
     }
-    console.error(error);
+    console.error('Error during flight confirmation:', error); // Modified logging
     throw new Error("Failed to confirm flight price");
   }
 };
@@ -37,14 +34,17 @@ const bookFlight = async (flightOffer, travelers) => {
       throw new Error("Flight offer and an array of traveler data are required");
     }
 
+    const payload = {
+      data: {
+        type: "flight-order",
+        flightOffers: [flightOffer],
+        travelers: travelers,
+      },
+    };
+    
+
     const response = await amadeus.booking.flightOrders.post(
-      JSON.stringify({
-        data: {
-          type: "flight-order",
-          flightOffers: [flightOffer],
-          travelers: travelers,
-        },
-      })
+      JSON.stringify(payload)
     );
 
     return response.result;

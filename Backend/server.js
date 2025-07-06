@@ -33,6 +33,8 @@ app.use(express.urlencoded({ extended: true }));
 // API Routes
 app.use('/api/auth', require('./routes/authRoutes'));
 app.use('/api/users', require('./routes/userRoutes'));
+app.use('/api/flight-booking', require('./routes/flightBookingRoutes'));
+app.use('/api/activities', require('./routes/amadeusActivityRoutes'));
 
 // Health check endpoint
 app.get('/api/health', (req, res) => {

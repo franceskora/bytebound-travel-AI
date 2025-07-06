@@ -43,25 +43,21 @@ Backend/
 ## 🛠️ Installation
 
 1. **Clone and navigate to the Backend directory**
-
    ```bash
    cd Backend
    ```
 
 2. **Install dependencies**
-
    ```bash
    npm install
    ```
 
 3. **Set up environment variables**
-
    ```bash
    cp .env.example .env
    ```
-
+   
    Edit `.env` file with your configuration:
-
    ```env
    NODE_ENV=development
    PORT=5000
@@ -74,11 +70,10 @@ Backend/
 4. **Start MongoDB** (make sure MongoDB is running on your system)
 
 5. **Run the application**
-
    ```bash
    # Development mode with auto-restart
    npm run dev
-
+   
    # Production mode
    npm start
    ```
@@ -86,7 +81,6 @@ Backend/
 ## 📚 API Documentation
 
 ### Base URL
-
 ```
 http://localhost:5000/api
 ```
@@ -94,7 +88,6 @@ http://localhost:5000/api
 ### Authentication Endpoints
 
 #### Register User
-
 ```http
 POST /api/auth/register
 Content-Type: application/json
@@ -107,7 +100,6 @@ Content-Type: application/json
 ```
 
 #### Login User
-
 ```http
 POST /api/auth/login
 Content-Type: application/json
@@ -119,14 +111,12 @@ Content-Type: application/json
 ```
 
 #### Get Current User
-
 ```http
 GET /api/auth/me
 Authorization: Bearer <token>
 ```
 
 #### Update Password
-
 ```http
 PUT /api/auth/updatepassword
 Authorization: Bearer <token>
@@ -139,7 +129,6 @@ Content-Type: application/json
 ```
 
 #### Logout
-
 ```http
 POST /api/auth/logout
 Authorization: Bearer <token>
@@ -148,21 +137,18 @@ Authorization: Bearer <token>
 ### User Management Endpoints (Admin Only)
 
 #### Get All Users
-
 ```http
 GET /api/users?page=1&limit=10&search=john&role=user&isActive=true
 Authorization: Bearer <admin_token>
 ```
 
 #### Get Single User
-
 ```http
 GET /api/users/:id
 Authorization: Bearer <admin_token>
 ```
 
 #### Update User
-
 ```http
 PUT /api/users/:id
 Authorization: Bearer <admin_token>
@@ -177,14 +163,12 @@ Content-Type: application/json
 ```
 
 #### Delete User
-
 ```http
 DELETE /api/users/:id
 Authorization: Bearer <admin_token>
 ```
 
 #### Update Own Profile
-
 ```http
 PUT /api/users/profile
 Authorization: Bearer <token>
@@ -197,7 +181,6 @@ Content-Type: application/json
 ```
 
 ### Health Check
-
 ```http
 GET /api/health
 ```
@@ -224,7 +207,6 @@ Authorization: Bearer <your_jwt_token>
 All API responses follow a consistent format:
 
 ### Success Response
-
 ```json
 {
   "status": "success",
@@ -237,7 +219,6 @@ All API responses follow a consistent format:
 ```
 
 ### Error Response
-
 ```json
 {
   "status": "error",
@@ -262,7 +243,6 @@ To test the API endpoints, you can use:
 - **Frontend Integration**: Connect with your frontend application
 
 Example curl command:
-
 ```bash
 curl -X POST http://localhost:5000/api/auth/register \
   -H "Content-Type: application/json" \

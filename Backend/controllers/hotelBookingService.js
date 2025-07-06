@@ -1,11 +1,4 @@
-// In Backend/controllers/hotelBookingService.js
-
-const Amadeus = require("amadeus");
-
-const amadeus = new Amadeus({
-  clientId: process.env.AMADEUS_CLIENT_ID,
-  clientSecret: process.env.AMADEUS_CLIENT_SECRET,
-});
+const amadeus = require('../config/amadeusClient')();
 
 /**
  * Confirms a specific hotel offer to ensure the price and availability are still valid.
@@ -19,40 +12,37 @@ const confirmHotelOffer = async (offerId) => {
     }
 
     // This makes a GET request to the pricing endpoint for a specific offer
-    const response = await amadeus.shopping.hotelOffer(offerId).get();
+    const response = await amadeus.shopping.hotelOfferSearch(offerId).get();
     return response.data;
   } catch (error) {
-    console.error("Amadeus Hotel Confirm Error:", error.response ? error.response.data : error.message);
-    throw new Error('Failed to confirm hotel offer.');
+    if (error.response) {
+      throw new Error(`Amadeus Hotel Confirm Error: ${error.response.statusCode} - ${JSON.stringify(JSON.parse(error.response.body))}`);
+    }
+    throw error;
   }
 };
 
 /**
- * Books a previously confirmed hotel offer.
- * @param {string} offerId - The ID of the confirmed hotel offer.
- * @param {Array<object>} guests - An array of guest information objects.
+ * Books a hotel offer using the Amadeus Hotel Booking API v2.
+ * @param {object} hotelOrderData - The complete payload for the hotel order, matching Amadeus API v2 specifications.
  * @returns {Promise<object>} The final booking confirmation.
  */
-const bookHotel = async (offerId, guests) => {
+const bookHotel = async (hotelOrderData) => {
   try {
-    if (!offerId || !guests) {
-      throw new Error("A valid Offer ID and guest information are required to book a hotel.");
+    if (!hotelOrderData || !hotelOrderData.type || !hotelOrderData.guests || !hotelOrderData.roomAssociations || !hotelOrderData.payment) {
+      throw new Error("Invalid hotel order data provided. Missing required fields for Amadeus Hotel Booking API v2.");
     }
 
-    // The Amadeus API for hotel booking requires a guest object
-    const response = await amadeus.booking.hotelBookings.post(
-      JSON.stringify({
-        data: {
-          offerId: offerId,
-          guests: guests,
-          // Payment details would be handled here in a real-world scenario
-        },
-      })
-    );
+    console.log('Hotel Booking Payload:', JSON.stringify(hotelOrderData, null, 2));
+    const response = await amadeus.booking.hotelOrders.post({
+      data: hotelOrderData
+    });
     return response.data;
   } catch (error) {
-    console.error("Amadeus Hotel Booking Error:", error.response ? error.response.data : error.message);
-    throw new Error('Failed to book hotel.');
+    if (error.response) {
+      throw new Error(`Amadeus Hotel Booking Error: ${error.response.statusCode} - ${JSON.stringify(JSON.parse(error.response.body))}`);
+    }
+    throw error;
   }
 };
 

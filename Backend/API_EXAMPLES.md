@@ -3,13 +3,11 @@
 Here are some curl commands to test the API endpoints:
 
 ## 1. Health Check
-
 ```bash
 curl http://localhost:5000/api/health
 ```
 
 ## 2. Register a New User
-
 ```bash
 curl -X POST http://localhost:5000/api/auth/register \
   -H "Content-Type: application/json" \
@@ -21,7 +19,6 @@ curl -X POST http://localhost:5000/api/auth/register \
 ```
 
 ## 3. Login User
-
 ```bash
 curl -X POST http://localhost:5000/api/auth/login \
   -H "Content-Type: application/json" \
@@ -32,14 +29,12 @@ curl -X POST http://localhost:5000/api/auth/login \
 ```
 
 ## 4. Get Current User (requires token from login)
-
 ```bash
 curl -X GET http://localhost:5000/api/auth/me \
   -H "Authorization: Bearer YOUR_JWT_TOKEN_HERE"
 ```
 
 ## 5. Update User Profile (requires token)
-
 ```bash
 curl -X PUT http://localhost:5000/api/users/profile \
   -H "Content-Type: application/json" \
@@ -51,7 +46,6 @@ curl -X PUT http://localhost:5000/api/users/profile \
 ```
 
 ## 6. Change Password (requires token)
-
 ```bash
 curl -X PUT http://localhost:5000/api/auth/updatepassword \
   -H "Content-Type: application/json" \
@@ -63,7 +57,6 @@ curl -X PUT http://localhost:5000/api/auth/updatepassword \
 ```
 
 ## 7. Logout (requires token)
-
 ```bash
 curl -X POST http://localhost:5000/api/auth/logout \
   -H "Authorization: Bearer YOUR_JWT_TOKEN_HERE"
@@ -72,21 +65,18 @@ curl -X POST http://localhost:5000/api/auth/logout \
 ## Admin Endpoints (requires admin role)
 
 ### Get All Users
-
 ```bash
 curl -X GET "http://localhost:5000/api/users?page=1&limit=10" \
   -H "Authorization: Bearer YOUR_ADMIN_TOKEN_HERE"
 ```
 
 ### Get Single User
-
 ```bash
 curl -X GET http://localhost:5000/api/users/USER_ID_HERE \
   -H "Authorization: Bearer YOUR_ADMIN_TOKEN_HERE"
 ```
 
 ### Update User (Admin)
-
 ```bash
 curl -X PUT http://localhost:5000/api/users/USER_ID_HERE \
   -H "Content-Type: application/json" \
@@ -100,7 +90,6 @@ curl -X PUT http://localhost:5000/api/users/USER_ID_HERE \
 ```
 
 ### Delete User (Admin)
-
 ```bash
 curl -X DELETE http://localhost:5000/api/users/USER_ID_HERE \
   -H "Authorization: Bearer YOUR_ADMIN_TOKEN_HERE"
