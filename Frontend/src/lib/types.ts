@@ -1,15 +1,47 @@
 import * as z from "zod";
-export interface ChatMessageType {
+
+
+export interface UserChat {
+  id: number;
+  title: string;
+}
+
+export interface ChatMessage {
   id: number;
   isAi: boolean;
   text?: string;
+  imageUrl?: string;
+   timestamp?: string;
   file?: {
     name: string;
     url: string;
+   
   };
-  audioUrl?: string;
+   cardType?: "activity" | "flight" | "hotel" | string; 
+  cardData?: FlightOffer /* | other offer types */;
 }
 
+export interface UserChat {
+  id: number;
+  title: string;
+  messages: ChatMessage[];
+}
+
+export interface FlightOffer {
+  id: string;
+  price: { total: string; currency: string };
+  flightType: string;
+  itineraries: {
+    segments: {
+      airline: string;
+      origin: string;
+      destination: string;
+      departure: string;
+      arrival: string;
+      flightNumber: string;
+    }[];
+  }[];
+}
 
 
 export const signupSchema = z.object({

@@ -27,8 +27,9 @@ export const ChatWindow = ({ messages, onSend }: ChatWindowProps) => {
             text={msg.text}
             file={msg.file}
             audioUrl={msg.audioUrl}
-       
               timestamp={msg.timestamp} 
+              cardType={msg.cardType}
+              cardData={msg.cardData}
           />
         ))}
       </div>

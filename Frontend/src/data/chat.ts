@@ -1,27 +1,7 @@
 // data/chats.ts
 
-export interface UserChat {
-  id: number;
-  title: string;
-}
+import { UserChat } from "../lib/types";
 
-export interface ChatMessage {
-  id: number;
-  isAi: boolean;
-  text?: string;
-  imageUrl?: string;
-   timestamp?: string;
-  file?: {
-    name: string;
-    url: string;
-  };
-}
-
-export interface UserChat {
-  id: number;
-  title: string;
-  messages: ChatMessage[];
-}
 
 export const chats: UserChat[] = [
   {
@@ -95,3 +75,5 @@ export const userProfile = {
   },
   tripType: "International"
 };
+
+export type { UserChat };

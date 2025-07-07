@@ -4,76 +4,74 @@ import { ChatWindow } from '../../components/pages/dashboard/chat/ChatWindow';
 import { LeftSideBar } from '../../components/pages/dashboard/chat/LeftSideBar';
 import { chats as initialChats, UserChat } from '../../data/chat';
 import { useState } from 'react';
+import { fetchFlightOffers } from '../../lib/api';
+import { ChatMessage } from '../../lib/types';
 
 export const Chat = () => {
   const [chats, setChats] = useState<UserChat[]>(initialChats);
   const [activeChatId, setActiveChatId] = useState<number>(initialChats[0].id);
+  const activeChat = chats.find(c => c.id === activeChatId);
 
-  const activeChat = chats.find((c) => c.id === activeChatId);
-
-  const handleNewChat = () => {
-    const newId = Date.now();
-    const newChat: UserChat = {
-      id: newId,
-      title: 'New Chat',
-      messages: [],
-    };
-    setChats((prev) => [newChat, ...prev]);
-    setActiveChatId(newId);
+  const handleFlightQuery = async (origin: string, dest: string, dep: string, ret?: string) => {
+    if (!activeChat) return;
+    try {
+      const offers = await fetchFlightOffers(origin, dest, dep, ret);
+      const offer = offers[0];
+      const cardMsg: ChatMessage = {
+        id: Date.now(),
+        isAi: true,
+        timestamp: new Date().toISOString(),
+        cardType: 'flight',
+        cardData: offer,
+      };
+      const updated = chats.map(c =>
+        c.id === activeChat.id
+          ? { ...c, messages: [...c.messages, cardMsg] }
+          : c
+      );
+      setChats(updated);
+    } catch (err) {
+      console.error("Flight fetch failed", err);
+    }
   };
 
-  const handleSendMessage = (msg: any) => {
+  const handleSendMessage = (msg: Partial<ChatMessage>) => {
     if (!activeChat) return;
-
-    const newMessage = {
+    const newMsg: ChatMessage = {
       id: Date.now(),
       isAi: false,
       timestamp: new Date().toISOString(),
       ...msg,
     };
-
-    let newTitle = activeChat.title;
-    if (activeChat.messages.length === 0 && msg.text) {
-      const raw = msg.text.trim();
-      const meaningful = raw.replace(/^(hi|hello|hey)[.!]?/i, '').trim();
-      const finalTitle = meaningful.length > 0 ? meaningful : raw;
-      newTitle = finalTitle.split(' ').slice(0, 6).join(' ');
-    }
-
-    const updatedChats = chats.map((chat) =>
-      chat.id === activeChat.id
-        ? {
-            ...chat,
-            title: newTitle,
-            messages: [...chat.messages, newMessage],
-          }
-        : chat
+    const updated = chats.map(c =>
+      c.id === activeChat.id
+        ? { ...c, messages: [...c.messages, newMsg] }
+        : c
     );
-    setChats(updatedChats);
+    setChats(updated);
 
-    setTimeout(() => {
-      const aiReply = {
-        id: Date.now() + 1,
-        isAi: true,
-        text: `You said: ${msg.text}`,
-        timestamp: new Date().toISOString(),
-      };
-      const updatedChatsWithAI = updatedChats.map((chat) =>
-        chat.id === activeChat.id
-          ? { ...chat, messages: [...chat.messages, aiReply] }
-          : chat
-      );
-      setChats(updatedChatsWithAI);
-    }, 1000);
+    // Optional simulated AI response
+    if (msg.text?.toLowerCase().includes('flight')) {
+      const [_, origin, destination] = msg.text.match(/flight from (\w+) to (\w+)/i) || [];
+      if (origin && destination) setTimeout(() => handleFlightQuery(origin, destination, '2025-07-15'), 500);
+    }
+  };
+
+  const handleNewChat = () => {
+    const newChat: UserChat = {
+      id: Date.now(),
+      title: 'New Chat',
+      messages: [],
+    };
+    setChats(prev => [newChat, ...prev]);
+    setActiveChatId(newChat.id);
   };
 
   return (
     <div className="flex h-screen">
       <LeftSideBar
-        chats={chats}
-        activeChatId={activeChatId}
-        onSelectChat={(id) => setActiveChatId(id)}
-        onNewChat={handleNewChat}
+        chats={chats} activeChatId={activeChatId}
+        onSelectChat={setActiveChatId} onNewChat={handleNewChat}
       />
       {activeChat && (
         <ChatWindow messages={activeChat.messages} onSend={handleSendMessage} />

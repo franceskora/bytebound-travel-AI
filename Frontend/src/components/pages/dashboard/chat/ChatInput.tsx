@@ -5,7 +5,7 @@ import { recordAudio } from "../../../../utils/recordAudio";
 import { transcribeAudio } from "../../../../lib/api";
 
 interface ChatInputProps {
-  onSend: (message: any) => void; // will be ChatMessageType
+  onSend: (message: any) => void; 
 }
 
 export const ChatInput = ({ onSend }: ChatInputProps) => {
@@ -20,7 +20,6 @@ export const ChatInput = ({ onSend }: ChatInputProps) => {
 
   const recognitionRef = useRef<SpeechRecognition | null>(null);
  
-
 
 const handleSendClick = () => {
     if (!input.trim() && !selectedFile) return;
@@ -62,14 +61,14 @@ const handleSendClick = () => {
 
 const handleMicClick = async () => {
   try {
-    setIsListening(true); // ✅ Show the cancel/confirm icons
+    setIsListening(true); 
 
     const audioBlob = await recordAudio();
 
     // You can choose to auto-transcribe immediately OR wait for confirm
     const { text } = await transcribeAudio(audioBlob);
 
-    setTranscript(text || ""); // ✅ Put result in transcript, not input yet
+    setTranscript(text || "");
 
     // Note: Don’t auto-setInput() if you want user to confirm first
   } catch (err) {

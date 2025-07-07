@@ -1,5 +1,4 @@
 import { Star } from "lucide-react";
-// This is the corrected import path
 import { Button } from "../../../ui/button";
 
 export const AiHotelCard = () => {
@@ -11,7 +10,7 @@ export const AiHotelCard = () => {
         </p>
         <div className="bg-white dark:bg-dark rounded-lg shadow-md overflow-hidden">
           <img
-            src="/path/to/hotel-image.png" // The JS dev will replace this with a real image URL
+            src="/eiffel-tower.png" 
             alt="Hotel Exterior"
             className="w-full h-40 object-cover"
           />
