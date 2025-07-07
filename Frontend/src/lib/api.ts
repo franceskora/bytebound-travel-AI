@@ -1,8 +1,11 @@
+/// <reference types="vite/client" />
 import axios from "axios";
+import { FlightOffer } from "./types";
 
 const API = axios.create({
   baseURL: import.meta.env.VITE_API_URL,
 });
+
 
 // Simulate a user registration
 export const registerUser = async ({
@@ -44,3 +47,27 @@ export async function transcribeAudio(audioBlob: Blob): Promise<{ text: string }
 
   return response.data; 
 }
+
+export const fetchActivities = async (dest: string) => {
+  const res = await API.get(`/activities`, { params: { city: dest } });
+  return res.data.activities; 
+};
+
+export const fetchFlightOffers = async (
+  origin: string, destination: string,
+  departureDate: string, returnDate?: string
+): Promise<FlightOffer[]> => {
+  const params: Record<string, any> = { origin, destination, departureDate, adults: 1 };
+  if (returnDate) params.returnDate = returnDate;
+
+  const { data } = await axios.get<{ offers: FlightOffer[] }>('/flight-booking', { params });
+  console.log('fetchFlightOffers returned:', data);
+  return data.offers;
+};
+
+
+
+export const fetchHotels = async (city: string, checkIn: string, checkOut: string) => {
+  const res = await API.get(`/hotel-search`, { params: { city, checkIn, checkOut } });
+  return res.data.hotels;
+};

@@ -17,9 +17,7 @@ function App() {
 
           {/* ✅ Parent Dashboard Route */}
           <Route path="/dashboard" element={<Dashboard />}>
-            {/* ✅ Index route so /dashboard works */}
             <Route index element={<Chat />} />
-            {/* ✅ Explicit /dashboard/chat route */}
             <Route path="chat" element={<Chat />} />
           </Route>
 
