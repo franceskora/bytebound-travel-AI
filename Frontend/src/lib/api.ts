@@ -34,25 +34,28 @@ export const logoutUser = async () => {
 
 // Simulate a user registration
 export const registerUser = async ({
-  name,
-  email,
-  password,
+  name,
+  email,
+  password,
+  role, // role is now accepted
 }: {
-  name: string;
-  email: string;
-  password: string;
+  name: string;
+  email: string;
+  password: string;
+  role: string; // type is now updated
 }) => {
-  // Simulate a network delay
-  await new Promise((resolve) => setTimeout(resolve, 1000));
+  // Simulate a network delay
+  await new Promise((resolve) => setTimeout(resolve, 1000));
 
-  // Return fake user data
-  return {
-    id: "fake_user_id_123",
-    name,
-    email,
-    password, // Include password to use the variable
-    token: "fake_jwt_token",
-  };
+  // Return fake user data
+  return {
+    id: "fake_user_id_123",
+    name,
+    email,
+    password, // Include password to use the variable
+    role,     // Include role to use the variable
+    token: "fake_jwt_token",
+  };
 };
 
 //  AUDIO TRANSCRIPTION FUNCTION/**

@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Link } from "react-router-dom";
+import { Link, useNavigate } from "react-router-dom";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import * as z from "zod";
@@ -7,7 +7,8 @@ import { Eye, EyeOff, ArrowLeft, Check, X } from "lucide-react";
 import { Button } from "../../ui/button";
 import { Input } from "../../ui/input";
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage} from "../../ui/form";
-import { useNavigate } from "react-router-dom";
+import { useUserStore } from "../../../store/useUserStore";
+import { registerUser } from "../../../lib/api";
 
 
 const signupSchema = z.object({
@@ -37,6 +38,7 @@ export const Signup = () => {
   const [showConfirmPassword, setShowConfirmPassword] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
   const navigate = useNavigate();
+  const fetchUser = useUserStore((state) => state.fetchUser);
 
 
   const form = useForm<SignupFormValues>({
@@ -71,16 +73,33 @@ export const Signup = () => {
   const passwordRequirements = getPasswordStrength(password);
   const passwordStrength = passwordRequirements.filter((req) => req.met).length;
 
- const onSubmit = async (data: SignupFormValues) => {
-  setIsLoading(true);
-  // Simulate API call
-  await new Promise((resolve) => setTimeout(resolve, 1000));
-  console.log("Signup data:", data);
-  setIsLoading(false);
+  const onSubmit = async (data: SignupFormValues) => {
+    setIsLoading(true);
+    try {
+        // This now calls your real backend API
+        await registerUser({
+            name: `${data.firstName} ${data.lastName}`,
+            email: data.email,
+            password: data.password,
+            role: data.role,
+        });
 
-  // ✅ Redirect to dashboard
-  navigate("/dashboard");
-};
+        // Automatically log the user in after successful registration
+        await fetchUser();
+
+        // Smart redirection based on the selected role
+        if (data.role === 'partner') {
+            navigate('/create-partner-profile');
+        } else {
+            navigate('/chat');
+        }
+    } catch (error) {
+        console.error("Signup failed:", error);
+        // Here you can add user-facing error messages, e.g., using a toast notification.
+    } finally {
+        setIsLoading(false);
+    }
+  };
 
 
   return (
@@ -258,7 +277,7 @@ export const Signup = () => {
 
               <FormField
                 control={form.control}
-                name="confirmPassword" 
+                name="confirmPassword"
                 render={({ field }) => (
                   <FormItem>
                     <FormLabel>Confirm Password</FormLabel>
