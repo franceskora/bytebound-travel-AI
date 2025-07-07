@@ -7,10 +7,12 @@ const { confirmFlight, bookFlight } = require('./flightBookingService');
 const { sendSmsNotification } = require('./notificationService');
 const User = require('../models/User');
 const { confirmHotelOffer, bookHotel } = require('./hotelBookingService');
-const { generateActivitySuggestions } = require('./activitySuggestionService'); // Import the new service
+const { generateActivitySuggestions, suggestUpsellProducts } = require('./activitySuggestionService'); // Import the new service
 const { amadeusActivityController, getActivitiesNearBookedHotel } = require('./amadeusActivityController');
+const Partner = require('../models/Partner'); // Import the Partner model
+const Booking = require('../models/Booking'); // Import the Booking model
 const { generateFlightBookingSms, generateHotelBookingSms } = require('../utils/smsTemplates');
-
+const { getAvailableProducts } = require('./productsController');
 // This controller will be responsible for coordinating other agents
 // to build the complete itinerary.
 const orchestrateFlightBooking = asyncHandler(async (req, res) => {
@@ -24,6 +26,19 @@ const orchestrateFlightBooking = asyncHandler(async (req, res) => {
         return res.status(400).json({ message: 'Traveler data (array of traveler objects) is required for booking.' });
     }
 
+    // =================================================================
+    // ===== START OF ADDED CODE #1: Get Preferences & Partners ========
+    // =================================================================
+    let userPreferences = [];
+    try {
+        userPreferences = await getUserPreferences(req.user.id);
+        console.log(`Found ${userPreferences.length} saved preferences for user.`);
+    } catch (e) {
+        console.error("Could not fetch user preferences from KG:", e.message);
+    }
+
+    const partners = await Partner.find();
+
     // 1. Call Travel Request Agent
     let travelRequest;
     try {
@@ -32,6 +47,24 @@ const orchestrateFlightBooking = asyncHandler(async (req, res) => {
     } catch (error) {
         
         return res.status(500).json({ message: 'Failed to process travel request.', details: error.message });
+    }
+
+    // =================================================================
+    // ===== START OF ADDED CODE #2: Save New Preferences =============
+    // =================================================================
+    try {
+        if (travelRequest.flight && travelRequest.flight.preferences) {
+            for (const pref of travelRequest.flight.preferences) {
+                await saveUserPreference(req.user.id, 'flight', pref);
+            }
+        }
+        if (travelRequest.hotel && travelRequest.hotel.preferences) {
+            for (const pref of travelRequest.hotel.preferences) {
+                await saveUserPreference(req.user.id, 'hotel', pref);
+            }
+        }
+    } catch (e) {
+        console.error("Could not save new preferences to KG:", e.message);
     }
 
     if (!travelRequest || !travelRequest.flight) {
@@ -74,6 +107,17 @@ const orchestrateFlightBooking = asyncHandler(async (req, res) => {
             return res.status(500).json({ message: 'Failed to find flights or no flights available.', details: flightSearchRes.body });
         }
 
+        // =================================================================
+        // ===== START OF ADDED CODE #3: Partner Preference Sorting ======
+        // =================================================================
+        flightSearchRes.body.flights.sort((a, b) => {
+            const aIsPartner = partners.some(p => p.businessType === 'airline' && p.businessName === a.validatingAirlineCodes[0]);
+            const bIsPartner = partners.some(p => p.businessType === 'airline' && p.businessName === b.validatingAirlineCodes[0]);
+            if (aIsPartner && !bIsPartner) return -1;
+            if (!aIsPartner && bIsPartner) return 1;
+            return 0;
+        });
+
         for (const flightOffer of flightSearchRes.body.flights) {
             try {
                 const confirmedOffer = await confirmFlight(flightOffer);
@@ -105,6 +149,17 @@ const orchestrateFlightBooking = asyncHandler(async (req, res) => {
                                 bookingConfirmation = await bookFlight(confirmedOffer.data.flightOffers[0], travelersForBooking);
                 flightBooked = true;
                 // console.log('Flight Booking Confirmation:', JSON.stringify(bookingConfirmation, null, 2)); // Temporarily commented out for focused logging
+                // --- New Logic: Save a record of this booking ---
+                const airlineCode = bookingConfirmation.data.validatingAirlineCodes[0];
+                const partner = await Partner.findOne({ businessName: airlineCode });
+
+                await Booking.create({
+                    user: req.user.id,
+                    bookingType: 'flight',
+                    providerName: airlineCode,
+                    partner: partner ? partner._id : null,
+                    amount: parseFloat(bookingConfirmation.data.price.grandTotal)
+                });
 
                 // Send SMS for flight booking to all travelers
                 for (const traveler of travelers) {
@@ -202,6 +257,18 @@ const orchestrateFlightBooking = asyncHandler(async (req, res) => {
 
                     const hotelBookingConfirmation = await bookHotel(hotelOrderData);
 
+                    // --- New Logic: Save a record of this hotel booking ---
+                    const hotelName = confirmedOffer.hotel.name; // Get the hotel name
+                    const partner = await Partner.findOne({ businessName: hotelName });
+
+                    await Booking.create({
+                        user: req.user.id,
+                        bookingType: 'hotel',
+                        providerName: hotelName,
+                        partner: partner ? partner._id : null,
+                        amount: parseFloat(confirmedOffer.offers[0].price.total)
+                    });
+
                     // Add the successful booking info to the final response
                     bookingConfirmation.hotelBookingDetails = hotelBookingConfirmation;
                     console.log('Hotel Booking Confirmation:', JSON.stringify(hotelBookingConfirmation, null, 2));
@@ -268,6 +335,21 @@ const orchestrateFlightBooking = asyncHandler(async (req, res) => {
         bookingConfirmation.itinerary_suggestions = ["Could not retrieve activity suggestions at this time."];
     }
     // --- END: Tavily Itinerary Enrichment Logic ---
+
+    // --- START: New Upsell Marketplace Logic ---
+    try {
+        const availableProducts = require('./productsController').getAvailableProducts();
+        const destination = travelRequest.flight.destination;
+        const productSuggestions = await suggestUpsellProducts(destination, availableProducts);
+        
+        // Add the suggestions to the final response
+        bookingConfirmation.product_suggestions = productSuggestions;
+
+    } catch (upsellError) {
+        console.error('Upsell suggestion failed:', upsellError.message);
+        bookingConfirmation.product_suggestions = [];
+    }
+    // --- END: New Upsell Marketplace Logic ---
 
     // 6. Return the final result
     res.status(200).json({
