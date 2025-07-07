@@ -6,6 +6,31 @@ const API = axios.create({
   baseURL: import.meta.env.VITE_API_URL,
 });
 
+// Function to get the currently logged-in user's data
+export const getCurrentUser = async () => {
+  // We need to get the token, which is likely stored after login
+  const token = localStorage.getItem('token'); 
+  if (!token) throw new Error("No token found");
+
+  const response = await API.get('/auth/me', {
+    headers: {
+      Authorization: `Bearer ${token}`
+    }
+  });
+  return response.data.data.user;
+};
+
+// Function to log the user out
+export const logoutUser = async () => {
+    const token = localStorage.getItem('token');
+    if (!token) return;
+
+    await API.post('/auth/logout', {}, {
+        headers: { Authorization: `Bearer ${token}` }
+    });
+    // Remove the token from storage
+    localStorage.removeItem('token');
+};
 
 // Simulate a user registration
 export const registerUser = async ({

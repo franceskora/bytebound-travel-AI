@@ -1,18 +1,18 @@
 // src/store/useUserStore.ts
 import { create } from 'zustand';
-import { getCurrentUser, logoutUser } from '../api/auth';
+import { getCurrentUser, logoutUser } from '../lib/api';
 
 interface User {
-  // Define the properties of your user object here, for example:
   id: string;
   name: string;
   email: string;
-  // Add other fields as needed
+  role: string;
 }
 
 interface UserStore {
   user: User | null;
   loading: boolean;
+  isAuthenticated: boolean;
   fetchUser: () => Promise<void>;
   logout: () => Promise<void>;
 }
@@ -20,18 +20,19 @@ interface UserStore {
 export const useUserStore = create<UserStore>((set) => ({
   user: null,
   loading: true,
+  isAuthenticated: false,
 
   fetchUser: async () => {
     try {
       const data = await getCurrentUser();
-      set({ user: data, loading: false });
+      set({ user: data, loading: false, isAuthenticated: true });
     } catch {
-      set({ user: null, loading: false });
+      set({ user: null, loading: false, isAuthenticated: false });
     }
   },
 
   logout: async () => {
     await logoutUser();
-    set({ user: null });
+    set({ user: null, isAuthenticated: false });
   },
 }));
