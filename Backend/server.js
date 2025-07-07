@@ -37,6 +37,7 @@ app.use('/api/reviews', require('./routes/reviewRoutes')); // Review routes
 app.use('/api/transcribe', require('./routes/transcribeRoutes'));
 app.use('/api/flight-booking', require('./routes/flightBookingRoutes'));
 app.use('/api/activities', require('./routes/amadeusActivityRoutes'));
+app.use('/api/ai-chat', require('./routes/aiChatRoutes')); 
 
 
 // Health check endpoint
