@@ -17,8 +17,8 @@ export interface ChatMessage {
     url: string;
    
   };
-   cardType?: "activity" | "flight" | "hotel" | string; 
-  cardData?: FlightOffer /* | other offer types */;
+   cardType?: "activity" | "flight" | "hotel" | "itinerary" | string; 
+  cardData?: FlightOffer | HotelOffer | ActivityData | ItineraryData | any;
 }
 
 export interface UserChat {
@@ -41,6 +41,32 @@ export interface FlightOffer {
       flightNumber: string;
     }[];
   }[];
+}
+
+export interface ActivityData {
+  id: string;
+  title: string;
+  description: string;
+  imageUrl?: string;
+  location?: string;
+}
+
+export interface HotelOffer {
+  id: string;
+  name: string;
+  price: { total: string; currency: string };
+  address: string;
+  imageUrl?: string;
+  rating?: number;
+}
+
+export interface ItineraryData {
+  id: string;
+  title: string;
+  days: Array<{
+    date: string;
+    activities: string[];
+  }>;
 }
 
 

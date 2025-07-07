@@ -10,7 +10,7 @@ export const Dashboard = () => {
 
   const [audioMode, setAudioMode] = useState(false);
 
-  const handleSendVoiceMessage = (msg: string) => {
+  const handleVoiceMessage = (msg: string) => {
     console.log("Voice message:", msg);
     // TODO: Add to chat thread here
   };
@@ -54,7 +54,7 @@ export const Dashboard = () => {
       <VoiceModalContainer
         isOpen={audioMode}
         onClose={() => setAudioMode(false)}
-        onSend={handleSendVoiceMessage}
+        onSend={handleVoiceMessage}
       />
 
     </div>
