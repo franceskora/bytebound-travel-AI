@@ -14,6 +14,7 @@ const signupSchema = z.object({
   firstName: z.string().min(2, "First name must be at least 2 characters"),
   lastName: z.string().min(2, "Last name must be at least 2 characters"),
   email: z.string().email("Please enter a valid email address"),
+  role: z.string(), // This line was added
   password: z
     .string()
     .min(8, "Password must be at least 8 characters")
@@ -44,6 +45,7 @@ export const Signup = () => {
       firstName: "",
       lastName: "",
       email: "",
+      role: "user", // Default to "user"
       password: "",
       confirmPassword: "",
       agreeToTerms: false,
@@ -148,6 +150,28 @@ export const Signup = () => {
                   )}
                 />
               </div>
+
+              {/* ===== START: NEW ROLE SELECTION DROPDOWN ===== */}
+              <FormField
+                control={form.control}
+                name="role"
+                render={({ field }) => (
+                    <FormItem>
+                        <FormLabel>I am a...</FormLabel>
+                        <FormControl>
+                            <select
+                                {...field}
+                                className="w-full h-12 border-primary bg-dark/50 dark:bg-dark rounded-md px-3 text-white"
+                            >
+                                <option value="user">Traveler</option>
+                                <option value="partner">Business Partner (Hotel, Tour, etc.)</option>
+                            </select>
+                        </FormControl>
+                        <FormMessage />
+                    </FormItem>
+                )}
+              />
+              {/* ===== END: NEW ROLE SELECTION DROPDOWN ===== */}
 
               <FormField
                 control={form.control}
