@@ -4,15 +4,16 @@ import { ChatWindow } from '../../components/pages/dashboard/chat/ChatWindow';
 import { LeftSideBar } from '../../components/pages/dashboard/chat/LeftSideBar';
 import { chats as initialChats, UserChat } from '../../data/chat';
 import { useState } from 'react';
-import { fetchFlightOffers } from '../../lib/api';
+// import { fetchFlightOffers } from '../../lib/api';
 import { ChatMessage } from '../../lib/types';
+import { fetchAiReply } from '../../lib/api';
 
 export const Chat = () => {
   const [chats, setChats] = useState<UserChat[]>(initialChats);
   const [activeChatId, setActiveChatId] = useState<number>(initialChats[0].id);
   const activeChat = chats.find(c => c.id === activeChatId);
 
-  const handleFlightQuery = async (origin: string, dest: string, dep: string, ret?: string) => {
+/*   const handleFlightQuery = async (origin: string, dest: string, dep: string, ret?: string) => {
     if (!activeChat) return;
     try {
       const offers = await fetchFlightOffers(origin, dest, dep, ret);
@@ -33,29 +34,49 @@ export const Chat = () => {
     } catch (err) {
       console.error("Flight fetch failed", err);
     }
-  };
+  }; */
 
-  const handleSendMessage = (msg: Partial<ChatMessage>) => {
-    if (!activeChat) return;
-    const newMsg: ChatMessage = {
-      id: Date.now(),
-      isAi: false,
+ const handleSendMessage = async (msg: Partial<ChatMessage>) => {
+  if (!activeChat) return;
+
+  // Add user message immediately
+  const userMsg: ChatMessage = {
+    id: Date.now(),
+    isAi: false,
+    timestamp: new Date().toISOString(),
+    ...msg,
+  };
+  const withUserMsg = chats.map(c =>
+    c.id === activeChat.id
+      ? { ...c, messages: [...c.messages, userMsg] }
+      : c
+  );
+  setChats(withUserMsg);
+
+  try {
+    // 👇 Always call AI API for ANY message
+    const aiReply = await fetchAiReply(withUserMsg.find(c => c.id === activeChat.id)!.messages);
+
+    // Add AI reply to the same chat
+    const aiMsg: ChatMessage = {
+      id: Date.now() + 1,
+      isAi: true,
       timestamp: new Date().toISOString(),
-      ...msg,
+      text: aiReply,
     };
+
     const updated = chats.map(c =>
       c.id === activeChat.id
-        ? { ...c, messages: [...c.messages, newMsg] }
+        ? { ...c, messages: [...c.messages, userMsg, aiMsg] }
         : c
     );
     setChats(updated);
 
-    // Optional simulated AI response
-    if (msg.text?.toLowerCase().includes('flight')) {
-      const [_, origin, destination] = msg.text.match(/flight from (\w+) to (\w+)/i) || [];
-      if (origin && destination) setTimeout(() => handleFlightQuery(origin, destination, '2025-07-15'), 500);
-    }
-  };
+  } catch (err) {
+    console.error('AI fetch failed:', err);
+  }
+};
+
 
   const handleNewChat = () => {
     const newChat: UserChat = {
