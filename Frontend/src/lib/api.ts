@@ -1,6 +1,6 @@
 /// <reference types="vite/client" />
 import axios from "axios";
-import { FlightOffer } from "./types";
+import { ChatMessage, FlightOffer } from "./types";
 
 const API = axios.create({
   baseURL: import.meta.env.VITE_API_URL,
@@ -93,6 +93,14 @@ export const fetchFlightOffers = async (
   return data.offers;
 };
 
+
+export const fetchAiReply = async (
+  messages: ChatMessage[],
+  model = 'groq'
+): Promise<string> => {
+  const { data } =  await API.post('/ai-chat', { messages, model });
+  return data.reply;
+};
 
 
 export const fetchHotels = async (city: string, checkIn: string, checkOut: string) => {
