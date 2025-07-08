@@ -1,5 +1,7 @@
 import { AiFlightCard } from "./AiFlightCard";
 import { FlightOffer, HotelOffer, ActivityData, ItineraryData } from "../../../../lib/types";
+import ReactMarkdown from 'react-markdown';
+import remarkGfm from 'remark-gfm';
 
 // Placeholder card components (replace with real ones if available)
 const AiHotelCard = ({ offer }: { offer: HotelOffer }) => (
@@ -70,6 +72,11 @@ export const ChatMessage = ({
   const alignment = isAi ? "justify-start" : "justify-end";
   const isImage = file?.type?.startsWith("image/");
 
+  function isJson(text: string): boolean {
+  text = text.trim();
+  return text.startsWith('{') && text.endsWith('}');
+}
+
   const renderContent = () => {
     if (cardType === "flight" && cardData) {
       // Support both single and multiple offers
@@ -89,7 +96,23 @@ export const ChatMessage = ({
     if (cardType === "itinerary" && cardData) {
       const itineraries = Array.isArray(cardData) ? cardData : [cardData];
       return itineraries.map((it: ItineraryData) => <AiItineraryCard key={it.id} itinerary={it} />);
+    } if (text) {
+    if (isJson(text)) {
+      try {
+        const obj = JSON.parse(text);
+        return (
+          <pre className="bg-gray-100 p-2 rounded text-xs overflow-auto">
+            {JSON.stringify(obj, null, 2)}
+          </pre>
+        );
+      } catch {}
     }
+    return (
+      <ReactMarkdown remarkPlugins={[remarkGfm]}>
+        {text}
+      </ReactMarkdown>
+    );
+  }
     return (
       <>
         {text && <p className="text-sm mb-2">{text}</p>}

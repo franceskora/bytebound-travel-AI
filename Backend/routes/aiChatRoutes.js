@@ -1,39 +1,50 @@
 const express = require('express');
 const router = express.Router();
-const fetch = (...args) => import('node-fetch').then(({ default: fetch }) => fetch(...args));
-
-const GROQ_API_URL = 'https://api.groq.com/openai/v1/chat/completions';
+const fetch = (...args) => import('node-fetch').then(r => r.default(...args));
+const GROQ_URL = 'https://api.groq.com/openai/v1/chat/completions';
 
 router.post('/', async (req, res) => {
-  const { messages, imageUrl } = req.body;  // include imageUrl from client
+  const { messages, imageUrl } = req.body;
   const formatted = messages.map(m => ({
     role: m.isAi ? 'assistant' : 'user',
     content: m.text || '',
   }));
 
-  const groqBody = {
-    model: 'meta-llama/llama-4-scout-17b-16e-instruct',
+  // Detect if last user message is asking for booking summary
+  const lastUser = formatted.reverse().find(m => m.role === 'user');  
+  const wantsBooking = lastUser?.content.toLowerCase().includes('booking');
+
+  const systemPrompt = `
+You are a helpful travel agent.  
+${wantsBooking
+    ? '- **Booking responses ONLY**: output **strict JSON** with keys "booking", "totalCost", "nextSteps".'
+    : '- For normal conversational or educational responses, answer using headings, bullets, emojis, markdown format.' }
+`.trim();
+
+  const body = {
+    model: "meta-llama/llama-4-scout-17b-16e-instruct",
     messages: [
-      { role: 'system', content: "You're a helpful travel agent. Answer based on image and text." },
+      { role: 'system', content: systemPrompt },
       ...formatted,
     ],
+    ...(wantsBooking && { response_format: { type: "json_object" } }),
   };
 
   if (imageUrl) {
-    groqBody.messages.push({
+    body.messages.push({
       role: 'user',
       content: JSON.stringify({ type: 'image_url', image_url: { url: imageUrl } })
     });
   }
 
   try {
-    const resp = await fetch(GROQ_API_URL, {
+    const resp = await fetch(GROQ_URL, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
         Authorization: `Bearer ${process.env.GROQ_API_KEY}`,
       },
-      body: JSON.stringify(groqBody),
+      body: JSON.stringify(body),
     });
 
     if (!resp.ok) {
@@ -43,9 +54,8 @@ router.post('/', async (req, res) => {
     }
 
     const data = await resp.json();
-    const reply = data.choices?.[0]?.message?.content?.trim();
-    res.json({ reply });
-
+    res.json({ reply: data.choices[0].message.content.trim() });
+  
   } catch (err) {
     console.error('AI chat error:', err);
     res.status(500).json({ error: 'Groq chat failed' });
