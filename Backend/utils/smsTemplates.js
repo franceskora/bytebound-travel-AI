@@ -1,6 +1,6 @@
 // Backend/utils/smsTemplates.js
 
-const generateFlightBookingSms = (bookingConfirmation, traveler) => {
+const generateFlightBookingSms = (bookingConfirmation, traveler, flightCalendarLinks) => {
     try {
         const flightOrder = bookingConfirmation.data;
         const flightOffer = flightOrder.flightOffers[0];
@@ -29,6 +29,14 @@ const generateFlightBookingSms = (bookingConfirmation, traveler) => {
 
         flightDetails += `\nTotal Price: ${flightOffer.price.grandTotal} ${flightOffer.price.currency}.\nSafe travels!`;
 
+        // Add Google Calendar links
+        if (flightCalendarLinks && flightCalendarLinks.length > 0) {
+            flightDetails += `\n\nAdd to Calendar:\n`;
+            flightCalendarLinks.forEach((link, index) => {
+                flightDetails += `  ${index === 0 ? 'Outbound' : 'Return'} Flight: ${link}\n`;
+            });
+        }
+
         return flightDetails;
     } catch (error) {
         console.error('Error generating flight SMS:', error.message);
@@ -36,7 +44,7 @@ const generateFlightBookingSms = (bookingConfirmation, traveler) => {
     }
 };
 
-const generateHotelBookingSms = (hotelBookingConfirmation, traveler) => {
+const generateHotelBookingSms = (hotelBookingConfirmation, traveler, hotelCalendarLink) => {
     try {
         const hotelBooking = hotelBookingConfirmation.hotelBookings[0];
         const hotelOffer = hotelBooking.hotelOffer;
@@ -46,7 +54,7 @@ const generateHotelBookingSms = (hotelBookingConfirmation, traveler) => {
         let hotelSms = `Hotel Confirmed! Booking ID: ${confirmationNumber}.\n` +
                        `Booking Status: ${hotelBooking.bookingStatus || 'CONFIRMED'}\n` +
                        `Guest: ${traveler.name.firstName} ${traveler.name.lastName}\n` +
-                       `\n--- Hotel Details ---\n` +
+                       `\n--- Hotel Details --- \n` +
                        `Hotel: ${hotelDetails.name}\n`;
 
         const address = hotelDetails.address?.lines?.join(', ');
@@ -63,6 +71,12 @@ const generateHotelBookingSms = (hotelBookingConfirmation, traveler) => {
                     `Room Quantity: ${hotelOffer.roomQuantity || 'N/A'}\n` +
                     `Guests: ${hotelOffer.guests?.adults || 'N/A'} Adults\n` +
                     `Total: ${hotelOffer.price.total} ${hotelOffer.price.currency}. Enjoy your stay!`;
+
+        // Add Google Calendar link
+        if (hotelCalendarLink) {
+            hotelSms += `\n\nAdd to Calendar:\n`;
+            hotelSms += `  Hotel Booking: ${hotelCalendarLink}\n`;
+        }
 
         return hotelSms;
     } catch (error) {

@@ -49,7 +49,7 @@ async function extractTravelRequest(req) {
 
             For the "activities" section, include:
             - "location": (string, city name or specific address, if different from hotel)
-            - "userPreferences": (array of strings, e.g., ["museums", "hiking", "food tours", "nightlife"])
+            - "userPreferences": (array of strings, e.g., ["museums", "hiking", "food tours", "nightlife", "explore the city", "taste the food", "relax", "spend time alone"]. Extract any explicit or implicit preferences related to the user's desired travel style or activities.)
             - "dates": (array of strings, YYYY-MM-DD format, optional, specific dates for activities)
 
             If information for a section or a field is not explicitly provided or cannot be reasonably inferred, set its value to null or an appropriate default as specified. Do not make up information.
