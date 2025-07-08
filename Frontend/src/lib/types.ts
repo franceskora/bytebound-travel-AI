@@ -11,13 +11,13 @@ export interface ChatMessage {
   isAi: boolean;
   text?: string;
   imageUrl?: string;
-   timestamp?: string;
+   timestamp: string;
   file?: {
     name: string;
     url: string;
    
   };
-   cardType?: "activity" | "flight" | "hotel" | "itinerary" | string; 
+   cardType?: "activity" | "flight" | "hotel" | "itinerary"; 
   cardData?: FlightOffer | HotelOffer | ActivityData | ItineraryData | any;
 }
 

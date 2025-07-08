@@ -5,6 +5,7 @@ const morgan = require('morgan');
 const dotenv = require('dotenv');
 const connectDB = require('./config/database');
 const errorHandler = require('./middleware/errorHandler');
+const flightBookingRoutes = require('./routes/flightBookingRoutes');
 
 // Load environment variables
 dotenv.config();

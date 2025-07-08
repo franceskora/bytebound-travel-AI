@@ -1,6 +1,5 @@
 // Backend/controllers/flightSearchController.js
 
-const axios = require('axios');
 const amadeus = require('../config/amadeusClient')();
 
 const getCityCode = async (location) => {
@@ -15,7 +14,6 @@ const getCityCode = async (location) => {
             keyword: location,
             subType: 'AIRPORT'
         });
-        // Find the first location with an IATA code and return it.
         const iataCode = response.data.find(loc => loc.iataCode)?.iataCode;
         if (iataCode) {
             return iataCode;
@@ -30,9 +28,8 @@ const getCityCode = async (location) => {
 const flightSearchController = {
   searchFlights: async (req, res) => {
     try {
-      const { origin, destination, departureDate, returnDate, adults } = req.body;
+      const { origin, destination, departureDate, returnDate, adults, travelClass } = req.body;
       
-
       if (!origin || !destination || !departureDate || !adults) {
         return res.status(400).json({ message: 'Missing required flight search parameters.' });
       }
@@ -40,37 +37,41 @@ const flightSearchController = {
       const originCode = await getCityCode(origin);
       const destinationCode = await getCityCode(destination);
       
-
-      
-
       let amadeusResponse;
       try {
-        const searchParams = { // Create a params object
+        const searchParams = {
           originLocationCode: originCode,
           destinationLocationCode: destinationCode,
           departureDate: departureDate,
-          adults: adults
+          adults: String(adults), // Ensure adults is a string
+          travelClass: travelClass || 'ECONOMY',
+          currencyCode: 'USD', // It's good practice to specify a currency
+          nonStop: false // Set to true if you only want direct flights
         };
 
-        if (returnDate) { // Add returnDate if it exists
+        // --- THIS IS THE FINAL DEBUGGING LOG ---
+        console.log("SENDING TO AMADEUS:", JSON.stringify(searchParams, null, 2));
+        // ----------------------------------------
+
+        if (returnDate) {
           searchParams.returnDate = returnDate;
         }
 
-        amadeusResponse = await amadeus.shopping.flightOffersSearch.get(searchParams); // Pass the params object
-        
+        amadeusResponse = await amadeus.shopping.flightOffersSearch.get(searchParams);
         
       } catch (amadeusGetError) {
-        console.error('flightSearchController: Error during amadeus.shopping.flightOffersSearch.get():', amadeusGetError.response ? amadeusGetError.response.data : amadeusGetError.message);
-        throw amadeusGetError; // Re-throw to be caught by the outer catch block
+        // This will now log the detailed error from Amadeus
+        console.error("AMADEUS API ERROR:", amadeusGetError.response ? amadeusGetError.response.data : amadeusGetError.message);
+        throw amadeusGetError; 
       }
 
       res.status(200).json({
         message: 'Flight search completed successfully',
-        searchParams: { origin, destination, departureDate, returnDate, adults },
-        flights: amadeusResponse.data, // Return the full Amadeus data
+        searchParams: searchParams,
+        flights: amadeusResponse.data,
       });
     } catch (error) {
-      console.error('flightSearchController: Error during Amadeus flight search:', error.response ? error.response.data : error.message);
+      console.error('Flight Search Controller Error:', error.message);
       res.status(500).json({ message: 'Failed to search flights', error: error.message });
     }
   },
