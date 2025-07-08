@@ -1,33 +1,61 @@
 /// <reference types="vite/client" />
 import axios from "axios";
-import { FlightOffer } from "./types";
+import { ChatMessage, FlightOffer } from "./types";
 
 const API = axios.create({
   baseURL: import.meta.env.VITE_API_URL,
 });
 
+// Function to get the currently logged-in user's data
+export const getCurrentUser = async () => {
+  // We need to get the token, which is likely stored after login
+  const token = localStorage.getItem('token'); 
+  if (!token) throw new Error("No token found");
+
+  const response = await API.get('/auth/me', {
+    headers: {
+      Authorization: `Bearer ${token}`
+    }
+  });
+  return response.data.data.user;
+};
+
+// Function to log the user out
+export const logoutUser = async () => {
+    const token = localStorage.getItem('token');
+    if (!token) return;
+
+    await API.post('/auth/logout', {}, {
+        headers: { Authorization: `Bearer ${token}` }
+    });
+    // Remove the token from storage
+    localStorage.removeItem('token');
+};
 
 // Simulate a user registration
 export const registerUser = async ({
-  name,
-  email,
-  password,
+  name,
+  email,
+  password,
+  role, // role is now accepted
 }: {
-  name: string;
-  email: string;
-  password: string;
+  name: string;
+  email: string;
+  password: string;
+  role: string; // type is now updated
 }) => {
-  // Simulate a network delay
-  await new Promise((resolve) => setTimeout(resolve, 1000));
+  // Simulate a network delay
+  await new Promise((resolve) => setTimeout(resolve, 1000));
 
-  // Return fake user data
-  return {
-    id: "fake_user_id_123",
-    name,
-    email,
-    password, // Include password to use the variable
-    token: "fake_jwt_token",
-  };
+  // Return fake user data
+  return {
+    id: "fake_user_id_123",
+    name,
+    email,
+    password, // Include password to use the variable
+    role,     // Include role to use the variable
+    token: "fake_jwt_token",
+  };
 };
 
 //  AUDIO TRANSCRIPTION FUNCTION/**
@@ -65,6 +93,14 @@ export const fetchFlightOffers = async (
   return data.offers;
 };
 
+
+export const fetchAiReply = async (
+  messages: ChatMessage[],
+  model = 'groq'
+): Promise<string> => {
+  const { data } =  await API.post('/ai-chat', { messages, model });
+  return data.reply;
+};
 
 
 export const fetchHotels = async (city: string, checkIn: string, checkOut: string) => {

@@ -1,4 +1,5 @@
 require('dotenv').config({ path: require('path').resolve(__dirname, '../.env') });
+const { generateGoogleCalendarLink, formatUserFriendlyDateTime, formatDuration } = require('../utils/googleCalendar');
 const asyncHandler = require('express-async-handler');
 const { extractTravelRequest } = require('./travelRequestController');
 const flightSearchController = require('./flightSearchController');
@@ -6,13 +7,12 @@ const { searchHotels } = require('./hotelSearchController');
 const { confirmFlight, bookFlight } = require('./flightBookingService');
 const { sendSmsNotification } = require('./notificationService');
 const User = require('../models/User');
-const { confirmHotelOffer, bookHotel } = require('./hotelBookingService');
-const { generateActivitySuggestions, suggestUpsellProducts } = require('./activitySuggestionService'); // Import the new service
+const { confirmHotelOffer, bookHotel, getOffersForHotelId } = require('./hotelBookingService');
+const { generateActivitySuggestions } = require('./activitySuggestionService'); // Import the new service
 const { amadeusActivityController, getActivitiesNearBookedHotel } = require('./amadeusActivityController');
-const Partner = require('../models/Partner'); // Import the Partner model
-const Booking = require('../models/Booking'); // Import the Booking model
 const { generateFlightBookingSms, generateHotelBookingSms } = require('../utils/smsTemplates');
-const { getAvailableProducts } = require('./productsController');
+const neo4jService = require('../services/neo4jService');
+
 // This controller will be responsible for coordinating other agents
 // to build the complete itinerary.
 const orchestrateFlightBooking = asyncHandler(async (req, res) => {
@@ -26,19 +26,6 @@ const orchestrateFlightBooking = asyncHandler(async (req, res) => {
         return res.status(400).json({ message: 'Traveler data (array of traveler objects) is required for booking.' });
     }
 
-    // =================================================================
-    // ===== START OF ADDED CODE #1: Get Preferences & Partners ========
-    // =================================================================
-    let userPreferences = [];
-    try {
-        userPreferences = await getUserPreferences(req.user.id);
-        console.log(`Found ${userPreferences.length} saved preferences for user.`);
-    } catch (e) {
-        console.error("Could not fetch user preferences from KG:", e.message);
-    }
-
-    const partners = await Partner.find();
-
     // 1. Call Travel Request Agent
     let travelRequest;
     try {
@@ -47,24 +34,6 @@ const orchestrateFlightBooking = asyncHandler(async (req, res) => {
     } catch (error) {
         
         return res.status(500).json({ message: 'Failed to process travel request.', details: error.message });
-    }
-
-    // =================================================================
-    // ===== START OF ADDED CODE #2: Save New Preferences =============
-    // =================================================================
-    try {
-        if (travelRequest.flight && travelRequest.flight.preferences) {
-            for (const pref of travelRequest.flight.preferences) {
-                await saveUserPreference(req.user.id, 'flight', pref);
-            }
-        }
-        if (travelRequest.hotel && travelRequest.hotel.preferences) {
-            for (const pref of travelRequest.hotel.preferences) {
-                await saveUserPreference(req.user.id, 'hotel', pref);
-            }
-        }
-    } catch (e) {
-        console.error("Could not save new preferences to KG:", e.message);
     }
 
     if (!travelRequest || !travelRequest.flight) {
@@ -107,17 +76,6 @@ const orchestrateFlightBooking = asyncHandler(async (req, res) => {
             return res.status(500).json({ message: 'Failed to find flights or no flights available.', details: flightSearchRes.body });
         }
 
-        // =================================================================
-        // ===== START OF ADDED CODE #3: Partner Preference Sorting ======
-        // =================================================================
-        flightSearchRes.body.flights.sort((a, b) => {
-            const aIsPartner = partners.some(p => p.businessType === 'airline' && p.businessName === a.validatingAirlineCodes[0]);
-            const bIsPartner = partners.some(p => p.businessType === 'airline' && p.businessName === b.validatingAirlineCodes[0]);
-            if (aIsPartner && !bIsPartner) return -1;
-            if (!aIsPartner && bIsPartner) return 1;
-            return 0;
-        });
-
         for (const flightOffer of flightSearchRes.body.flights) {
             try {
                 const confirmedOffer = await confirmFlight(flightOffer);
@@ -148,24 +106,93 @@ const orchestrateFlightBooking = asyncHandler(async (req, res) => {
 
                                 bookingConfirmation = await bookFlight(confirmedOffer.data.flightOffers[0], travelersForBooking);
                 flightBooked = true;
-                // console.log('Flight Booking Confirmation:', JSON.stringify(bookingConfirmation, null, 2)); // Temporarily commented out for focused logging
-                // --- New Logic: Save a record of this booking ---
-                const airlineCode = bookingConfirmation.data.validatingAirlineCodes[0];
-                const partner = await Partner.findOne({ businessName: airlineCode });
 
-                await Booking.create({
-                    user: req.user.id,
-                    bookingType: 'flight',
-                    providerName: airlineCode,
-                    partner: partner ? partner._id : null,
-                    amount: parseFloat(bookingConfirmation.data.price.grandTotal)
-                });
+                // Update flight booking count in Neo4j
+                await neo4jService.updateBookingCounts(req.user.id, 'flight');
+
+                // Store implicit flight preferences in Neo4j
+                const bookedFlightOffer = bookingConfirmation.data.flightOffers[0];
+                if (bookedFlightOffer.itineraries && bookedFlightOffer.itineraries.length > 0) {
+                    const firstSegment = bookedFlightOffer.itineraries[0].segments[0];
+                    if (firstSegment.carrierCode) {
+                        await neo4jService.addOrUpdatePreference(
+                            req.user.id,
+                            'PREFERS_AIRLINE',
+                            'Airline',
+                            { name: firstSegment.carrierCode }
+                        );
+                    }
+                    if (bookedFlightOffer.travelerPricings && bookedFlightOffer.travelerPricings.length > 0) {
+                        const cabinClass = bookedFlightOffer.travelerPricings[0]?.fareDetailsBySegment[0]?.cabin;
+                        if (cabinClass) {
+                        await neo4jService.addOrUpdatePreference(
+                                req.user.id,
+                                'PREFERS_CLASS',
+                                'FlightClass',
+                                { type: cabinClass }
+                            );
+                        }
+                    }
+
+                    // Update flight spend in Neo4j
+                    const flightTotalPrice = parseFloat(bookedFlightOffer.price.grandTotal);
+                    if (!isNaN(flightTotalPrice)) {
+                        await neo4jService.updateUserSpend(req.user.id, 'flight', flightTotalPrice);
+                    }
+                } // Missing closing brace for if (bookedFlightOffer.itineraries...)
+
+                // console.log('Flight Booking Confirmation:', JSON.stringify(bookingConfirmation, null, 2)); // Temporarily commented out for focused logging
 
                 // Send SMS for flight booking to all travelers
                 for (const traveler of travelers) {
-                    const phoneNumber = traveler?.contact?.phones[0]?.number;
+                    const phoneNumber = `+${traveler?.contact?.phones[0]?.countryCallingCode}${traveler?.contact?.phones[0]?.number}`;
                     if (phoneNumber) {
-                        const flightSmsMessage = generateFlightBookingSms(bookingConfirmation, traveler);
+                        // Generate Google Calendar link for the flight
+                        const flightOffer = bookingConfirmation.data.flightOffers[0]; // Correctly access the flight offer details
+                        const flightCalendarLinks = [];
+
+                        // Determine if it's a round trip
+                        const isRoundTrip = flightOffer.itineraries.length > 1;
+
+                        // Process each itinerary (outbound and potentially inbound)
+                        flightOffer.itineraries.forEach((itinerary, index) => {
+                            const firstSegment = itinerary.segments[0];
+                            const lastSegment = itinerary.segments[itinerary.segments.length - 1];
+
+                            let flightTypePrefix = '';
+                            if (isRoundTrip) {
+                                flightTypePrefix = (index === 0) ? 'Outbound ' : 'Return ';
+                            }
+
+                            const title = `${flightTypePrefix}Flight: ${firstSegment.carrierCode}${firstSegment.number} ${firstSegment.departure.iataCode} to ${lastSegment.arrival.iataCode}`;
+
+                            let description = `<b>Confirmation ID:</b> ${bookingConfirmation.data.id}\n`;
+                            description += `<b>Airline:</b> ${firstSegment.carrierCode}\n`;
+                            description += `<b>Flight:</b> ${firstSegment.number}\n`;
+                            // Add details for each segment (connecting flights)
+                            itinerary.segments.forEach((segment, segIndex) => {
+                                description += `\n--- Segment ${segIndex + 1} ---\n`;
+                                description += `  <b>Flight:</b> ${segment.carrierCode}${segment.number}\n`;
+                                description += `  <b>Departs:</b> ${segment.departure.iataCode} Terminal ${segment.departure.terminal || ''} at ${formatUserFriendlyDateTime(segment.departure.at)}\n`;
+                                description += `  <b>Arrives:</b> ${segment.arrival.iataCode} Terminal ${segment.arrival.terminal || ''} at ${formatUserFriendlyDateTime(segment.arrival.at)}\n`;
+                            });
+
+                            const location = `${firstSegment.departure.iataCode} Airport`; // Changed location format to IATA code Airport
+                            const startTime = firstSegment.departure.at;
+                            const endTime = lastSegment.arrival.at;
+
+                            flightCalendarLinks.push(generateGoogleCalendarLink({
+                                title: title,
+                                description: description,
+                                location: location,
+                                startTime: startTime,
+                                endTime: endTime,
+                                reminders: 'P2H' // 2 hours before the flight
+                            }));
+                        });
+
+      
+                        const flightSmsMessage = generateFlightBookingSms(bookingConfirmation, traveler, flightCalendarLinks); // Pass links to SMS template
                         await sendSmsNotification(phoneNumber, flightSmsMessage);
                     }
                 }
@@ -257,108 +284,166 @@ const orchestrateFlightBooking = asyncHandler(async (req, res) => {
 
                     const hotelBookingConfirmation = await bookHotel(hotelOrderData);
 
-                    // --- New Logic: Save a record of this hotel booking ---
-                    const hotelName = confirmedOffer.hotel.name; // Get the hotel name
-                    const partner = await Partner.findOne({ businessName: hotelName });
-
-                    await Booking.create({
-                        user: req.user.id,
-                        bookingType: 'hotel',
-                        providerName: hotelName,
-                        partner: partner ? partner._id : null,
-                        amount: parseFloat(confirmedOffer.offers[0].price.total)
-                    });
-
                     // Add the successful booking info to the final response
                     bookingConfirmation.hotelBookingDetails = hotelBookingConfirmation;
                     console.log('Hotel Booking Confirmation:', JSON.stringify(hotelBookingConfirmation, null, 2));
+
+                    // Generate Google Calendar link for the hotel booking
+                    const hotelBooking = hotelBookingConfirmation.hotelBookings[0];
+                    const hotelDetails = hotelBooking.hotel;
+                    const hotelOffer = hotelBooking.hotelOffer;
+
+                    const hotelTitle = `Hotel Booking: ${hotelDetails.name}`;
+                    let hotelDescription = `<b>Confirmation ID:</b> ${hotelBooking.hotelProviderInformation[0].confirmationNumber}
+`;
+                    hotelDescription += `<b>Hotel:</b> ${hotelDetails.name}
+`;
+
+                    // Leverage info from SMS template: checkInDate and checkOutDate are always present
+                    // checkInTime and checkOutTime might be undefined, so use defaults
+                    const checkInTime = hotelOffer.policies?.checkInOut?.checkIn || '00:00:00';
+                    const checkOutTime = hotelOffer.policies?.checkInOut?.checkOut || '00:00:00';
+
+                    hotelDescription += `<b>Check-in:</b> ${hotelOffer.checkInDate}${checkInTime && checkInTime !== 'N/A' ? ' at ' + checkInTime : ''}
+` +
+                                        `Check-out: ${hotelOffer.checkOutDate}${checkOutTime && checkOutTime !== 'N/A' ? ' at ' + checkOutTime : ''}
+` +
+                                        `Room Type: ${hotelOffer.room?.description?.text || 'N/A'}
+` +
+                                        `Room Quantity: ${hotelOffer.roomQuantity || 'N/A'}
+` +
+                                        `Guests: ${hotelOffer.guests?.adults || 'N/A'} Adults
+` +
+                                        `Total: ${hotelOffer.price.total} ${hotelOffer.price.currency}. Enjoy your stay!`;
+
+                    const hotelCalendarLink = generateGoogleCalendarLink({
+                        title: hotelTitle,
+                        description: hotelDescription,
+                        location: hotelDetails.name,
+                        startTime: hotelOffer.checkInDate + 'T' + checkInTime,
+                        endTime: hotelOffer.checkOutDate + 'T' + checkOutTime,
+                        reminders: 'P1D' // 1 day before check-in
+                    });
 
                     // Send SMS for hotel booking to all travelers
                     for (const traveler of travelers) {
                         const phoneNumber = traveler?.contact?.phones[0]?.number;
                         if (phoneNumber) {
-                            const hotelSmsMessage = generateHotelBookingSms(hotelBookingConfirmation, traveler);
+                            const hotelSmsMessage = generateHotelBookingSms(hotelBookingConfirmation, traveler, hotelCalendarLink); // Pass link to SMS template
                             await sendSmsNotification(phoneNumber, hotelSmsMessage);
                         }
                     }
 
-                    // Automatically fetch nearby activities for the booked hotel
-                    if (hotelBookingConfirmation && hotelBookingConfirmation.hotelBookings && hotelBookingConfirmation.hotelBookings.length > 0 && hotelBookingConfirmation.hotelBookings[0].hotel && hotelBookingConfirmation.hotelBookings[0].hotel.hotelId) {
-                        try {
-                            const hotelIdForActivities = hotelBookingConfirmation.hotelBookings[0].hotel.hotelId;
-                            const nearbyActivities = await getActivitiesNearBookedHotel(hotelIdForActivities);
-                            bookingConfirmation.nearby_activities = nearbyActivities;
-                            console.log('Nearby Activities:', JSON.stringify(nearbyActivities, null, 2));
-                        } catch (activityError) {
-                            console.error('Error fetching nearby activities automatically:', activityError.message);
-                            bookingConfirmation.nearby_activities = ["Could not retrieve nearby activities automatically."];
-                        }
+				// Automatically fetch nearby activities for the booked hotel
+									if (hotelBookingConfirmation && hotelBookingConfirmation.hotelBookings && hotelBookingConfirmation.hotelBookings.length > 0 && hotelBookingConfirmation.hotelBookings[0].hotel && hotelBookingConfirmation.hotelBookings[0].hotel.hotelId) {
+										try {
+											const hotelIdForActivities = hotelBookingConfirmation.hotelBookings[0].hotel.hotelId;
+											const nearbyActivities = await getActivitiesNearBookedHotel(hotelIdForActivities);
+											bookingConfirmation.nearby_activities = nearbyActivities;
+											console.log('Nearby Activities:', JSON.stringify(nearbyActivities, null, 2));
+										} catch (activityError) {
+											console.error('Error fetching nearby activities automatically:', activityError.message);
+											bookingConfirmation.nearby_activities = ["Could not retrieve nearby activities automatically."];
+										}
+									}
+									hotelBooked = true; // Set to true on successful booking
+									// Update hotel booking count in Neo4j
+                    await neo4jService.updateBookingCounts(req.user.id, 'hotel');
+
+                    // Store implicit hotel preferences in Neo4j
+                    const bookedHotelDetails = hotelBookingConfirmation.hotelBookings[0].hotel;
+                    const bookedHotelOffer = hotelBookingConfirmation.hotelBookings[0].hotelOffer;
+
+                    if (bookedHotelDetails.chainCode) {
+                        await neo4jService.addOrUpdatePreference(
+                            req.user.id,
+                            'PREFERS_HOTEL_CHAIN',
+                            'HotelChain',
+                            { name: bookedHotelDetails.chainCode }
+                        );
                     }
-                    hotelBooked = true;
-                } catch (hotelBookingError) {
-                    console.error(`Hotel booking attempt ${hotelAttempts} failed:`, hotelBookingError.message);
-                    if (hotelBookingError.message.includes("INVALID PREPAY") || hotelBookingError.message.includes("Amadeus Hotel Booking Error")) {
-                        console.warn("Retrying hotel booking with next available offer...");
-                        // Continue to next iteration to try another offer
-                    } else {
-                        // For other unexpected errors, re-throw or handle as non-recoverable
-                        throw hotelBookingError;
+
+                    if (bookedHotelOffer.room?.description?.text) {
+                        await neo4jService.addOrUpdatePreference(
+                            req.user.id,
+                            'PREFERS_HOTEL_TYPE',
+                            'HotelType',
+                            { name: bookedHotelOffer.room.description.text }
+                        );
                     }
-                }
-            }
 
-            if (!hotelBooked) {
-                bookingConfirmation.hotelInfo = "Failed to book any hotel after multiple attempts or no suitable offers found.";
-            }
+                    if (bookedHotelDetails.name) {
+                        await neo4jService.addOrUpdatePreference(
+                            req.user.id,
+                            'PREFERS_HOTEL_NAME',
+                            'HotelName',
+                            { name: bookedHotelDetails.name }
+                        );
+                    }
 
-        } catch (hotelError) {
-            console.error('Hotel booking process failed:', hotelError);
-            bookingConfirmation.hotelInfo = `Could not complete the hotel booking: ${hotelError.message}`;
-        }
-    }
+                    if (bookedHotelOffer.roomQuantity) {
+                        await neo4jService.addOrUpdatePreference(
+                            req.user.id,
+                            'PREFERS_ROOM_QUANTITY',
+                            'RoomQuantity',
+                            { quantity: bookedHotelOffer.roomQuantity }
+                        );
+                    }
 
-    // --- START: Tavily Itinerary Enrichment Logic ---
-    try {
-        let destinationForActivities = travelRequest.activities?.location || flightSearchParams.destination;
-        let userActivityPreferences = travelRequest.activities?.userPreferences || [];
+                    // Update hotel spend in Neo4j
+                    const hotelTotalPrice = parseFloat(bookedHotelOffer.price.total);
+                    if (!isNaN(hotelTotalPrice)) {
+                        await neo4jService.updateUserSpend(req.user.id, 'hotel', hotelTotalPrice);
+                    }
+								} catch (hotelBookingError) {
+									console.error(`Hotel booking attempt ${hotelAttempts} failed:`, hotelBookingError.message);
+									if (hotelBookingError.message.includes("INVALID PREPAY") || hotelBookingError.message.includes("Amadeus Hotel Booking Error")) {
+										console.warn("Trying next available hotel offer...");
+										// Loop will continue to the next 'hotelAttempts' index
+									} else {
+										// For other unexpected errors, re-throw or handle as non-recoverable
+										throw hotelBookingError;
+									}
+								}
+							}
 
-        const activityRecommendations = await generateActivitySuggestions(
-            destinationForActivities,
-            userActivityPreferences
-        );
-        bookingConfirmation.itinerary_suggestions = activityRecommendations.itinerarySuggestions;
-        bookingConfirmation.tavilyRawResults = activityRecommendations.rawResults;
-        bookingConfirmation.tavilySummary = activityRecommendations.summary;
+							if (!hotelBooked) {
+								bookingConfirmation.hotelInfo = "Failed to book any hotel after multiple attempts or no suitable offers found.";
+							}
 
-    } catch (enrichmentError) {
-        console.error('Error generating activity suggestions:', enrichmentError);
-        bookingConfirmation.itinerary_suggestions = ["Could not retrieve activity suggestions at this time."];
-    }
-    // --- END: Tavily Itinerary Enrichment Logic ---
+						} catch (hotelError) {
+							console.error('Hotel booking process failed:', hotelError);
+							bookingConfirmation.hotelInfo = `Could not complete the hotel booking: ${hotelError.message}`;
+						}
+					}
 
-    // --- START: New Upsell Marketplace Logic ---
-    try {
-        const availableProducts = require('./productsController').getAvailableProducts();
-        const destination = travelRequest.flight.destination;
-        const productSuggestions = await suggestUpsellProducts(destination, availableProducts);
-        
-        // Add the suggestions to the final response
-        bookingConfirmation.product_suggestions = productSuggestions;
+					// --- START: Tavily Itinerary Enrichment Logic ---
+					try {
+						let destinationForActivities = travelRequest.activities?.location || flightSearchParams.destination;
+						let userActivityPreferences = travelRequest.activities?.userPreferences || [];
 
-    } catch (upsellError) {
-        console.error('Upsell suggestion failed:', upsellError.message);
-        bookingConfirmation.product_suggestions = [];
-    }
-    // --- END: New Upsell Marketplace Logic ---
+						const activityRecommendations = await generateActivitySuggestions(
+							destinationForActivities,
+							userActivityPreferences
+						);
+						bookingConfirmation.itinerary_suggestions = activityRecommendations.itinerarySuggestions;
+						bookingConfirmation.tavilyRawResults = activityRecommendations.rawResults;
+						bookingConfirmation.tavilySummary = activityRecommendations.summary;
 
-    // 6. Return the final result
-    res.status(200).json({
-        message: 'Flight booking completed successfully through multi-agent orchestration!',
-        bookingConfirmation: bookingConfirmation,
-        originalTravelRequest: travelRequest
-    });
-});
+					} catch (enrichmentError) {
+						console.error('Error generating activity suggestions:', enrichmentError);
+						bookingConfirmation.itinerary_suggestions = ["Could not retrieve activity suggestions at this time."];
+					}
+					// --- END: Tavily Itinerary Enrichment Logic ---
 
-module.exports = {
-    orchestrateFlightBooking
-};
+					// 6. Return the final result
+					res.status(200).json({
+						message: 'Flight booking completed successfully through multi-agent orchestration!',
+						bookingConfirmation: bookingConfirmation,
+						originalTravelRequest: travelRequest
+					});
+				});
+
+				module.exports = {
+					orchestrateFlightBooking
+				};

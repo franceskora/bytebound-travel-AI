@@ -133,11 +133,6 @@ Content-Type: application/json
 POST /api/auth/logout
 Authorization: Bearer <token>
 ```
-#### Transcribe speech to text
-```http
-POST /api/transcribe
-Authorization: Bearer <token>
-```
 
 ### User Management Endpoints (Admin Only)
 

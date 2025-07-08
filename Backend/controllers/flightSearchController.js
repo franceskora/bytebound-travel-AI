@@ -45,12 +45,18 @@ const flightSearchController = {
 
       let amadeusResponse;
       try {
-        amadeusResponse = await amadeus.shopping.flightOffersSearch.get({
+        const searchParams = { // Create a params object
           originLocationCode: originCode,
           destinationLocationCode: destinationCode,
           departureDate: departureDate,
           adults: adults
-        });
+        };
+
+        if (returnDate) { // Add returnDate if it exists
+          searchParams.returnDate = returnDate;
+        }
+
+        amadeusResponse = await amadeus.shopping.flightOffersSearch.get(searchParams); // Pass the params object
         
         
       } catch (amadeusGetError) {

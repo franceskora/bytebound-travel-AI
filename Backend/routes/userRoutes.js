@@ -1,11 +1,5 @@
 const express = require('express');
-const {
-    getUsers,
-    getUser,
-    updateUser,
-    deleteUser,
-    updateProfile
-} = require('../controllers/userController');
+const userController = require('../controllers/userController');
 
 const { protect, authorize } = require('../middleware/auth');
 const { validateUserUpdate } = require('../middleware/validation');
@@ -16,17 +10,19 @@ const router = express.Router();
 router.use(protect);
 
 // User profile routes (accessible by authenticated users)
-router.put('/profile', validateUserUpdate, updateProfile);
+router.put('/profile', validateUserUpdate, userController.updateProfile);
+router.put('/preferences', userController.updateUserPreferences);
+router.get('/preferences', userController.getUserPreferences);
 
 // Admin only routes
 router.use(authorize('admin'));
 
 router.route('/')
-    .get(getUsers);
+    .get(userController.getUsers);
 
 router.route('/:id')
-    .get(getUser)
-    .put(validateUserUpdate, updateUser)
-    .delete(deleteUser);
+    .get(userController.getUser)
+    .put(validateUserUpdate, userController.updateUser)
+    .delete(userController.deleteUser);
 
 module.exports = router;

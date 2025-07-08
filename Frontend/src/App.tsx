@@ -5,6 +5,9 @@ import { SignupPage } from './pages/SignUp';
 import { SigninPage } from './pages/SignIn';
 import { Chat } from './pages/dashboard/chat';
 import Dashboard from './pages/dashboard';
+import CreatePartnerProfile from './pages/dashboard/CreatePartnerProfile';
+import PartnerDashboard from './pages/dashboard/PartnerDashboard'; // Import the new page
+
 
 function App() {
   return (
@@ -23,6 +26,8 @@ function App() {
 
           {/* Optional: catch-all */}
           <Route path="*" element={<Navigate to="/" />} />
+          <Route path="/partner-dashboard" element={<PartnerDashboard />} />
+          <Route path="/create-partner-profile" element={<CreatePartnerProfile />} />
         </Routes>
       </Layout>
     </Router>

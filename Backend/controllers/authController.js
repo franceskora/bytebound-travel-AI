@@ -6,7 +6,7 @@ const { sendTokenResponse } = require('../utils/jwt');
 // @access  Public
 const register = async (req, res, next) => {
     try {
-        const { name, email, password, role } = req.body; //added role
+        const { name, email, password } = req.body;
 
         // Check if user already exists
         const existingUser = await User.findByEmail(email);
@@ -21,8 +21,7 @@ const register = async (req, res, next) => {
         const user = await User.create({
             name,
             email,
-            password,
-            role //added role
+            password
         });
 
         sendTokenResponse(user, 201, res, 'User registered successfully');

@@ -1,15 +1,31 @@
 const axios = require('axios');
 const { getRichLocationDetails } = require('./travelEnrichmentService');
+const neo4jService = require('../services/neo4jService');
 
 const GROQ_API_URL = process.env.GROQ_API_URL || 'https://api.groq.com/openai/v1/chat/completions';
 const GROQ_API_KEY = process.env.GROQ_API_KEY;
 
-async function generateActivitySuggestions(location, userPreferences) {
+async function generateActivitySuggestions(location, userPreferences, userId) {
   let tavilyQuery;
-  if (userPreferences && userPreferences.length > 0) {
-    tavilyQuery = `Things to do in ${location} related to ${userPreferences.join(', ')}`;
+  let neo4jUserPreferences = [];
+
+  if (userId) {
+    try {
+      const allUserPreferences = await neo4jService.getUserPreferences(userId);
+      neo4jUserPreferences = allUserPreferences
+        .filter(pref => pref.relationshipType === 'PREFERS_TRAVEL_STYLE')
+        .map(pref => pref.targetNodeProperties.name);
+    } catch (error) {
+      console.warn(`Could not fetch Neo4j preferences for user ${userId}:`, error.message);
+    }
+  }
+
+  const combinedPreferences = [...(userPreferences || []), ...neo4jUserPreferences];
+
+  if (combinedPreferences.length > 0) {
+    tavilyQuery = `Best places for ${combinedPreferences.join(' and ')} in ${location}`;
   } else {
-    tavilyQuery = `Top attractions, activities, restaurants, and tourist places in ${location}`;
+    tavilyQuery = `Top attractions, fun activities, restaurants, and tourist places in ${location}`;
   }
 
   try {
@@ -17,7 +33,7 @@ async function generateActivitySuggestions(location, userPreferences) {
 
     let itinerarySuggestions = [];
     if (tavilyResults.answer || (tavilyResults.results && tavilyResults.results.length > 0)) {
-      let llmRefinementPrompt = `Based on the following information about ${location}, generate a concise list of 3-5 actionable itinerary suggestions. Each suggestion should be a short, direct phrase (e.g., "Visit the Eiffel Tower", "Explore the Louvre Museum", "Try a food tour in Le Marais").
+      let llmRefinementPrompt = `Based on the following information about ${location} and considering the user's preferences for ${combinedPreferences.join(', ')}, generate a concise list of 3-5 actionable itinerary location-based suggestions for ${location}. You response should only have suggestions. Each suggestion should be a short, direct phrase (e.g., "Visit the Eiffel Tower", "Explore the Louvre Museum", "Try a food tour in Le Marais").
 
 `;
 
@@ -73,46 +89,4 @@ async function generateActivitySuggestions(location, userPreferences) {
   }
 }
 
-// =================================================================
-// ===== START: NEW UPSELL MARKETPLACE FUNCTION ====================
-// =================================================================
-const suggestUpsellProducts = async (destination, availableProducts) => {
-  try {
-    const prompt = `You are a helpful travel concierge. A user is traveling to ${destination}. From the following list of products, suggest one or two that would be most relevant for their trip. Return your answer as a simple array of product names.
-
-    Available products: ${JSON.stringify(availableProducts)}
-    
-    User's Destination: ${destination}
-    
-    Your response should be only the array of product names, for example: ["Universal Travel Adapter", "Portable Neck Pillow"]`;
-
-    const response = await axios.post(
-      GROQ_API_URL,
-      {
-        model: 'llama3-8b-8192',
-        messages: [{ role: 'user', content: prompt }],
-        temperature: 0.5,
-      },
-      {
-        headers: {
-          'Authorization': `Bearer ${GROQ_API_KEY}`,
-          'Content-Type': 'application/json'
-        }
-      }
-    );
-
-    const suggestedProductNames = JSON.parse(response.data.choices[0].message.content);
-    
-    // Filter the full product details based on the AI's suggestions
-    return availableProducts.filter(p => suggestedProductNames.includes(p.name));
-
-  } catch (error) {
-    console.error("Upsell suggestion error:", error.message);
-    return []; // Return an empty array on failure
-  }
-};
-// =================================================================
-// ===== END: NEW UPSELL MARKETPLACE FUNCTION ======================
-// =================================================================
-
-module.exports = { generateActivitySuggestions, suggestUpsellProducts };
+module.exports = { generateActivitySuggestions };

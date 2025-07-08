@@ -1,6 +1,35 @@
 const amadeus = require('../config/amadeusClient')();
 
 /**
+ * Searches for hotel offers for a specific hotel ID.
+ * @param {string} hotelId - The ID of the hotel to search offers for.
+ * @param {number} adults - Number of adults.
+ * @param {string} checkInDate - Check-in date (YYYY-MM-DD).
+ * @param {string} checkOutDate - Check-out date (YYYY-MM-DD).
+ * @returns {Promise<Array<object>>} An array of hotel offers.
+ */
+const getOffersForHotelId = async (hotelId, adults, checkInDate, checkOutDate) => {
+  try {
+    const response = await amadeus.shopping.hotelOffersSearch.get({
+      hotelIds: hotelId,
+      adults: adults,
+      checkInDate: checkInDate,
+      checkOutDate: checkOutDate,
+    });
+
+    if (response.data && response.data.length > 0) {
+      return response.data;
+    } else {
+      console.warn(`No offers found for hotel ID ${hotelId}. Full response:`, response);
+      return [];
+    }
+  } catch (error) {
+    console.error(`Error searching offers for hotel ID ${hotelId}:`, error);
+    return []; // Return empty array on error to allow orchestration to continue
+  }
+};
+
+/**
  * Confirms a specific hotel offer to ensure the price and availability are still valid.
  * @param {string} offerId - The ID of the hotel offer to be confirmed.
  * @returns {Promise<object>} The confirmed hotel offer details.
@@ -46,4 +75,4 @@ const bookHotel = async (hotelOrderData) => {
   }
 };
 
-module.exports = { confirmHotelOffer, bookHotel };
+module.exports = { confirmHotelOffer, bookHotel, getOffersForHotelId };
