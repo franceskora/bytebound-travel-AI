@@ -1,63 +1,60 @@
-// components/VoiceModalContainer.tsx
-import React, { useState } from "react";
-import VoiceModal from "./VoiceModal";
-import { useSpeechToText } from "../../../../../hooks/useSpeechToText";
-import { useTextToSpeech } from "../../../../../utils/tts";
+import React, { useState, useEffect } from 'react'; // ⬅️ Add useEffect
+import VoiceModal from './VoiceModal';
+import { recordAudio } from '../../../../../utils/recordAudio';
+import { summarizeVoiceConversation } from '../../../../../lib/api';
 
 type VoiceModalContainerProps = {
   isOpen: boolean;
   onClose: () => void;
   onSend: (message: string) => void;
+  onAddAiMessage: (aiText: string) => Promise<void>;
+  onVoiceSession: (audioBlob: Blob) => Promise<void>;
 };
 
 export const VoiceModalContainer: React.FC<VoiceModalContainerProps> = ({
-  isOpen,
-  onClose,
-  onSend,
+  isOpen, onClose, onVoiceSession, onAddAiMessage
 }) => {
-  const [isSpeaking, setIsSpeaking] = useState(false);
+  const [chunks, setChunks] = useState<string[]>([]);
+  const [isListening, setIsListening] = useState(false);
 
-  const {
-    transcript,
-    listening,
-    startListening,
-    stopListening,
-  } = useSpeechToText();
+const startSession = async () => {
+  if (isListening) return; 
+  setIsListening(true);
+  const blob = await recordAudio();
 
-  const { speak } = useTextToSpeech();
+  // Call the real voice session handler
+  await onVoiceSession(blob);
 
-  const handlePause = () => {
-    if (listening) {
-      stopListening();
-    } else {
-      startListening();
-    }
-  };
+  setIsListening(false);
+};
 
-  const handleEnd = () => {
-    stopListening();
-    if (transcript.trim()) {
-      onSend(transcript);
-      // Optionally, speak a response:
-      setIsSpeaking(true);
-      speak("This is how to pronounce it!");
-      setTimeout(() => setIsSpeaking(false), 2000);
-    }
+
+  const finalizeSession = async () => {
+    if (!chunks.length) return onClose();
+    const summary = await summarizeVoiceConversation(chunks);
+    onAddAiMessage(summary);
     onClose();
   };
+
+  useEffect(() => {
+    if (isOpen) {
+      startSession();
+    } else {
+      setChunks([]); // ⬅️ Reset when modal closes
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isOpen]); // ⬅️ Runs only when isOpen changes
 
   return (
     <VoiceModal
       isOpen={isOpen}
-      isListening={listening}
-      isSpeaking={isSpeaking}
-      onClose={() => {
-        stopListening();
-        onClose();
-      }}
-      onPause={handlePause}
-      onEnd={handleEnd}
-      transcript={transcript}
+      isListening={isListening}
+      isSpeaking={false}
+      onClose={() => { setIsListening(false); onClose(); }}
+      onPause={() => {/* no-op or pause logic */}}
+      onEnd={finalizeSession}
+      transcript={chunks.join(' ')}
     />
   );
 };
+

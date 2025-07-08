@@ -38,6 +38,8 @@ app.use('/api/users', userRoutes);
 app.use('/api/flight-booking', require('./routes/flightBookingRoutes'));
 app.use('/api/activities', require('./routes/amadeusActivityRoutes'));
 app.use('/api/ai-chat', require('./routes/aiChatRoutes')); 
+app.use('/api/transcribe', require('./routes/transcribeRoutes')); 
+app.use('/api/voice-transcribe', require('./routes/voiceTranscribeRoutes'));
 
 // Health check endpoint
 app.get('/api/health', (req, res) => {

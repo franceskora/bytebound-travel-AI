@@ -21,8 +21,11 @@ ${wantsBooking
     : '- For normal conversational or educational responses, answer using headings, bullets, emojis, markdown format.' }
 `.trim();
 
+  const { model } = req.body;
   const body = {
-    model: "meta-llama/llama-4-scout-17b-16e-instruct",
+    model: model === 'compound-beta'
+      ? 'compound-beta'
+      : 'meta-llama/llama-4-scout-17b-16e-instruct',
     messages: [
       { role: 'system', content: systemPrompt },
       ...formatted,

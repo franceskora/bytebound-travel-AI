@@ -102,6 +102,24 @@ export const fetchAiReply = async (
   return data.reply;
 };
 
+//Transcribe audio for voice session
+export const transcribeAudioGroq = async (audio: Blob): Promise<string> => {
+  const form = new FormData();
+  form.append('audio', audio, 'voice.webm');
+  const { data } = await API.post('/voice-transcribe', form, {
+    headers: { 'Content-Type': 'multipart/form-data' },
+  });
+  return data.text;
+};
+// VOICE SESSiON SUMMARY
+export const summarizeVoiceConversation = async (transcript: string[]): Promise<string> => {
+  const { data } = await API.post('/ai-chat', {
+    messages: transcript.map(t => ({ isAi: false, text: t })),
+    model: 'groq',
+    systemPrompt: 'Summarize key takeaways as bullet points.',
+  });
+  return data.reply;
+};
 
 export const fetchHotels = async (city: string, checkIn: string, checkOut: string) => {
   const res = await API.get(`/hotel-search`, { params: { city, checkIn, checkOut } });

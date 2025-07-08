@@ -12,6 +12,7 @@ type VoiceModalProps = {
   onPause: () => void;
   onEnd: () => void;
   transcript?: string;
+  isProcessing?: boolean;
 };
 
 
