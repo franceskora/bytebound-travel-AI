@@ -32,10 +32,14 @@ const validateUserRegistration = [
         .withMessage('Please provide a valid email'),
     
     body('password')
-        .isLength({ min: 6 })
+        .isLength({ min: 8 })
         .withMessage('Password must be at least 6 characters long')
         .matches(/^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)/)
         .withMessage('Password must contain at least one uppercase letter, one lowercase letter, and one number'),
+    
+    body('role')
+        .isIn(['user', 'partner']) // Ensures role is one of these two values
+        .withMessage('Invalid user role specified'),
     
     handleValidationErrors
 ];

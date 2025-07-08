@@ -32,30 +32,78 @@ export const logoutUser = async () => {
     localStorage.removeItem('token');
 };
 
-// Simulate a user registration
+// This function is currently a mock. Replace it with the code below.
 export const registerUser = async ({
-  name,
-  email,
-  password,
+  name,
+  email,
+  password,
   role, // role is now accepted
 }: {
-  name: string;
-  email: string;
-  password: string;
+  name: string;
+  email: string;
+  password: string;
   role: string; // type is now updated
 }) => {
-  // Simulate a network delay
-  await new Promise((resolve) => setTimeout(resolve, 1000));
+  // This now sends a request to your backend
+  const response = await API.post('/auth/register', {
+    name,
+    email,
+    password,
+    role,
+  });
 
-  // Return fake user data
-  return {
-    id: "fake_user_id_123",
-    name,
-    email,
-    password, // Include password to use the variable
-    role,     // Include role to use the variable
-    token: "fake_jwt_token",
-  };
+  // Assuming the backend returns a token, store it
+  if (response.data.token) {
+    localStorage.setItem('token', response.data.token);
+  }
+
+  return response.data; // Return the full response from the backend
+};
+
+/**
+ * Logs a user in by sending their credentials to the backend.
+ * @param email The user's email address.
+ * @param password The user's password.
+ * @returns The data returned from the backend upon successful login.
+ */
+export const loginUser = async ({ email, password }: { email: string; password: string; }) => {
+  // This sends a POST request to your backend's login endpoint
+  const response = await API.post('/auth/login', {
+    email,
+    password,
+  });
+
+  // After a successful login, your backend should return a token.
+  // We check for the token in the response data and save it to localStorage.
+  if (response.data && response.data.token) {
+    localStorage.setItem('token', response.data.token);
+  }
+
+  // Return the entire response data from the backend.
+  return response.data;
+};
+
+/**
+ * Creates a business profile for a partner user.
+ * @param profileData - An object containing the business details.
+ * @returns The data returned from the backend after profile creation.
+ */
+export const createPartnerProfile = async (profileData: { businessName: string; businessType: string; }) => {
+  // Get the auth token from storage
+  const token = localStorage.getItem('token');
+  if (!token) {
+    throw new Error("Authorization token not found. Please log in.");
+  }
+
+  // Send a POST request to your backend's endpoint for creating a profile
+  const response = await API.post('/partners/profile', profileData, {
+    headers: {
+      // Include the token in the request headers
+      Authorization: `Bearer ${token}`
+    }
+  });
+
+  return response.data;
 };
 
 //  AUDIO TRANSCRIPTION FUNCTION/**
@@ -106,4 +154,28 @@ export const fetchAiReply = async (
 export const fetchHotels = async (city: string, checkIn: string, checkOut: string) => {
   const res = await API.get(`/hotel-search`, { params: { city, checkIn, checkOut } });
   return res.data.hotels;
+};
+
+// =================================================================
+// ===== START: I ADDED THIS NEW FUNCTION ==============================
+// =================================================================
+
+/**
+ * Sends a user's request to the main backend orchestrator.
+ * @param text The user's natural language input.
+ * @param travelers An array of traveler objects.
+ * @returns The complete trip details object from the backend.
+ */
+export const getOrchestratorResponse = async (text: string, travelers: any[]) => {
+  const token = localStorage.getItem('token');
+  if (!token) throw new Error("Not authorized. Please log in.");
+
+  // This calls your main backend endpoint for orchestrating the trip
+  const response = await API.post('/flight-booking', { text, travelers }, {
+    headers: {
+      Authorization: `Bearer ${token}`
+    }
+  });
+  
+  return response.data;
 };

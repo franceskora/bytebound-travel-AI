@@ -94,11 +94,19 @@ export const Signup = () => {
             navigate('/chat');
         }
     } catch (error) {
-        console.error("Signup failed:", error);
-        // Here you can add user-facing error messages, e.g., using a toast notification.
-    } finally {
-        setIsLoading(false);
+    console.error("Signup failed!");
+
+    // This block safely checks for and logs the detailed backend error
+    if (typeof error === 'object' && error !== null && 'response' in error) {
+        const axiosError = error as { response?: { data?: any } };
+        console.error("Backend Error Details:", axiosError.response?.data);
+    } else {
+        console.error("An unexpected error occurred:", error);
     }
+
+} finally {
+    setIsLoading(false);
+}
   };
 
 
