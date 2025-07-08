@@ -22,11 +22,8 @@
     "@google/generative-ai": "^0.24.1",
     "@tavily/core": "^0.5.9",
     "amadeus": "^11.0.0",
-<<<<<<< HEAD
     "anthropic": "^0.0.0",
     "axios": "^1.10.0",
-=======
->>>>>>> ff4ed9828c8f847ced437d2abbf02db9bad9e2ee
     "bcryptjs": "^3.0.2",
     "cors": "^2.8.5",
     "dotenv": "^17.0.1",
@@ -37,13 +34,9 @@
     "jsonwebtoken": "^9.0.2",
     "mongoose": "^8.16.1",
     "morgan": "^1.10.0",
-<<<<<<< HEAD
     "multer": "^2.0.1",
-    "neo4j-driver": "^5.28.1",
     "node-fetch": "^3.3.2",
     "openai": "^5.8.2",
-=======
->>>>>>> ff4ed9828c8f847ced437d2abbf02db9bad9e2ee
     "stack": "^0.1.0",
     "neo4j-driver": "^5.22.0"
   },
